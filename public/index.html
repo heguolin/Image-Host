@@ -35,6 +35,7 @@
     <div class="hud-right">
       <span class="status"><i class="dot"></i> ONLINE</span>
       <span class="counter">⌬ <b id="count">0</b> IMG</span>
+      <a id="trashBtn" href="#trash" class="hud-btn" title="回收站">⊘ <span id="trashCount"></span></a>
     </div>
   </header>
 
@@ -60,6 +61,40 @@
 
     <!-- ==================== 画廊 ==================== -->
     <h3 class="section-title">// GALLERY · 检索到 <span id="count2">0</span> 条数据</h3>
+
+    <!-- 搜索 / 排序 / 格式筛选 -->
+    <div class="gallery-controls">
+      <div class="search-wrap">
+        <span class="search-prefix">//</span>
+        <input id="searchInput" type="text"
+               class="search-input"
+               placeholder="SEARCH PACKETS..."
+               autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="sort-wrap">
+        <span class="ctrl-label">SORT</span>
+        <select id="sortSelect" class="ctrl-select">
+          <option value="time-desc">TIME ↓</option>
+          <option value="time-asc">TIME ↑</option>
+          <option value="size-desc">SIZE ↓</option>
+          <option value="size-asc">SIZE ↑</option>
+          <option value="name-asc">NAME A→Z</option>
+          <option value="name-desc">NAME Z→A</option>
+        </select>
+      </div>
+      <div class="filter-wrap">
+        <span class="ctrl-label">TYPE</span>
+        <div class="filter-tags" id="filterTags">
+          <button class="filter-tag active" data-ext="all">ALL</button>
+          <button class="filter-tag" data-ext="png">PNG</button>
+          <button class="filter-tag" data-ext="jpg">JPG</button>
+          <button class="filter-tag" data-ext="gif">GIF</button>
+          <button class="filter-tag" data-ext="webp">WEBP</button>
+          <button class="filter-tag" data-ext="svg">SVG</button>
+        </div>
+      </div>
+    </div>
+
     <section id="gallery" class="gallery" aria-label="图片画廊"></section>
 
     <p id="empty" class="empty">// NO DATA FOUND IN VAULT</p>
