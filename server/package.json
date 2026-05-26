@@ -1,0 +1,23 @@
+{
+  "name": "image-host",
+  "version": "1.0.0",
+  "description": "Cyberpunk style image hosting service",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js"
+  },
+  "keywords": ["image-host", "cyberpunk", "express"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "nanoid": "^3.3.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

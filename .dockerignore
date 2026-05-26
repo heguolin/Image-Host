@@ -1,0 +1,11 @@
+node_modules/
+server/uploads/
+server/data/
+.env
+*.log
+server/test/
+server/test.png
+public/video/
+.git
+Dockerfile
+.dockerignore

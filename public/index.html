@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>◤ NEON.IMG ◢ // DATA VAULT</title>
+
+  <!-- Google Fonts: preconnect 优化 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2300F0FF'/></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- 全屏视频背景 -->
+  <video class="bg-video" autoplay muted loop playsinline>
+    <source src="/video/Cyberpunk.mp4" type="video/mp4">
+  </video>
+
+  <!-- 全屏扫描线覆盖层 -->
+  <div class="scanlines"></div>
+
+  <!-- 滚动扫描光带 -->
+  <div class="scan-beam"></div>
+
+  <!-- ==================== HUD 顶栏 ==================== -->
+  <header class="hud">
+    <div class="hud-left">
+      <span class="logo glitch" data-text="◤ NEON.IMG ◢">◤ NEON.IMG ◢</span>
+      <span class="version">// v1.0</span>
+    </div>
+    <div class="hud-right">
+      <span class="status"><i class="dot"></i> ONLINE</span>
+      <span class="counter">⌬ <b id="count">0</b> IMG</span>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ==================== DATA UPLINK 上传区 ==================== -->
+    <section id="dropzone" class="uplink">
+      <!-- 四角 L 型霓虹角标 -->
+      <span class="corner tl" aria-hidden="true"></span>
+      <span class="corner tr" aria-hidden="true"></span>
+      <span class="corner bl" aria-hidden="true"></span>
+      <span class="corner br" aria-hidden="true"></span>
+
+      <h2 class="uplink-title">&gt;&gt; DATA UPLINK INTERFACE</h2>
+
+      <div class="uplink-icon" aria-hidden="true">▼</div>
+
+      <p class="uplink-main">&gt; DROP_FILE_HERE.exe<span class="caret">_</span></p>
+      <p class="uplink-sub">// PASTE // CLICK // DRAG &nbsp;·&nbsp; MAX 10MB</p>
+
+      <input type="file" id="fileInput" multiple accept="image/*" hidden>
+    </section>
+
+    <!-- ==================== 画廊 ==================== -->
+    <h3 class="section-title">// GALLERY · 检索到 <span id="count2">0</span> 条数据</h3>
+    <section id="gallery" class="gallery" aria-label="图片画廊"></section>
+
+    <p id="empty" class="empty">// NO DATA FOUND IN VAULT</p>
+
+  </main>
+
+  <footer>
+    © 2026 NEON.IMG // Powered by Night City
+  </footer>
+
+  <!-- ==================== Toast 容器 ==================== -->
+  <div id="toastWrap" class="toast-wrap" aria-live="polite"></div>
+
+  <!-- ==================== 模态框（删除确认） ==================== -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-box">
+      <div class="modal-header" id="modalTitle">! CONFIRM // DELETE</div>
+      <div class="modal-body">即将永久销毁该数据包，确认继续？</div>
+      <div class="modal-footer">
+        <button id="modalCancel" class="btn">[ CANCEL ]</button>
+        <button id="modalOk" class="btn btn-danger">[ CONFIRM ]</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+server/uploads/
+server/data/
+.env
+*.log
+.DS_Store
+Thumbs.db
+server/test/
+server/test.png
+public/video/
+.claude/
