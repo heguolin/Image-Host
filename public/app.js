@@ -28,6 +28,8 @@ let filterExt = 'all';
 let selectedIds = new Set();
 let batchMode = false;
 let _pendingBatchDelete = false;
+let guestMode = false;
+let guestUploads = [];
 
 // ---------- 会话 ----------
 
@@ -67,15 +69,15 @@ function getAuthHeader() {
 function handleUnauth() {
   clearSession();
   showAuthModal();
-  toast('// SESSION EXPIRED // LOGIN AGAIN', 'error');
+  toast('会话已过期，请重新登录', 'error');
 }
 
 // ---------- 工具 ----------
 
 function toast(msg, type) {
   type = type || 'success';
-  var prefixMap = { success: '[ SUCCESS ]', error: '[ ERROR ]', info: '[ INFO ]', copied: '[ LINK COPIED ]' };
-  var prefix = prefixMap[type] || '[ INFO ]';
+  var prefixMap = { success: '[ 成功 ]', error: '[ 错误 ]', info: '[ 信息 ]', copied: '[ 已复制 ]' };
+  var prefix = prefixMap[type] || '[ 信息 ]';
   var el = document.createElement('div');
   el.className = 'toast ' + type;
   el.textContent = prefix + ' ' + msg;
@@ -92,9 +94,9 @@ function toast(msg, type) {
 function copy(text, format) {
   navigator.clipboard.writeText(text).then(function () {
     var fmtMap = { url: 'URL', md: 'MARKDOWN', html: 'HTML' };
-    toast('FORMAT \xB7 ' + (fmtMap[format] || format.toUpperCase()), 'copied');
+    toast('格式 \xB7 ' + (fmtMap[format] || format.toUpperCase()), 'copied');
   }).catch(function () {
-    toast('COPY FAILED', 'error');
+    toast('复制失败', 'error');
   });
 }
 
@@ -125,6 +127,20 @@ function updateCount(n) {
 function renderCard(item, index) {
   var ext = item.name.split('.').pop().toUpperCase();
   var pref = localStorage.getItem('neon_img_last_format') || 'url';
+
+  // 审核状态徽章
+  var modBadge = '';
+  var modHint = '';
+  if (item.moderationStatus === 'PENDING') {
+    modBadge = '<span class="badge-mod pending">审核中</span>';
+    modHint = '<div class="mod-hint">// 审核中 // 链接可用</div>';
+  } else if (item.moderationStatus === 'NEED_REVIEW') {
+    modBadge = '<span class="badge-mod need-review">待复审</span>';
+    modHint = '<div class="mod-hint">// 等待人工复审 //</div>';
+  } else if (item.moderationStatus === 'REJECT') {
+    modBadge = '<span class="badge-mod rejected">已拒绝</span>';
+  }
+
   var card = document.createElement('div');
   card.className = 'card';
   card.dataset.id = item.id;
@@ -144,12 +160,14 @@ function renderCard(item, index) {
       '</div>' +
     '</div>' +
     '<span class="badge-id">#' + String(index + 1).padStart(3, '0') + '</span>' +
+    modBadge +
     '<span class="badge-ext">.' + escapeHtml(ext) + '</span>' +
     '<div class="info">' +
       '<div class="info-row">' +
         '<span class="meta">' + formatSize(item.size) + '</span>' +
         '<button class="btn btn-danger" data-act="del">DEL</button>' +
       '</div>' +
+      modHint +
     '</div>';
 
   return card;
@@ -174,9 +192,10 @@ function loadList() {
       imageList = json.data || [];
       applyFilters();
       updateTrashBadge();
+      updateModBadge();
     })
     .catch(function () {
-      toast('LOAD LIST FAILED', 'error');
+      toast('加载列表失败', 'error');
     });
 }
 
@@ -221,15 +240,15 @@ function applyFilters() {
   rerender(filtered);
 
   if (filtered.length === 0) {
-    var msg = '// NO PACKETS FOUND';
+    var msg = '未找到匹配文件';
     if (searchKeyword.trim() !== '') {
-      msg += ' // QUERY: "' + searchKeyword.trim() + '"';
+      msg += ' // 搜索: "' + searchKeyword.trim() + '"';
     }
     if (filterExt !== 'all') {
-      msg += ' // TYPE: ' + filterExt.toUpperCase();
+      msg += ' // 格式: ' + filterExt.toUpperCase();
     }
     if (searchKeyword.trim() === '' && filterExt === 'all') {
-      msg = '// NO DATA FOUND IN VAULT';
+      msg = '// 暂无数据';
     }
     empty.textContent = msg;
   }
@@ -286,17 +305,22 @@ function bindControlEvents() {
 function uploadFiles(files) {
   if (!files || files.length === 0) return;
 
+  if (guestMode) {
+    guestUploadFiles(files);
+    return;
+  }
+
   // 客户端文件校验
   var ALLOWED = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
-  var MAX_SIZE = 10 * 1024 * 1024;
+  var MAX_SIZE = 20 * 1024 * 1024;
   for (var i = 0; i < files.length; i++) {
     if (files[i].size > MAX_SIZE) {
-      toast('// ERROR: PACKET TOO LARGE // MAX SIZE 10MB', 'error');
+      toast('错误: 文件过大 // 单文件最大 20MB', 'error');
       return;
     }
     var ext = '.' + files[i].name.split('.').pop().toLowerCase();
     if (ALLOWED.indexOf(ext) === -1) {
-      toast('// ERROR: FORMAT REJECTED // ACCEPTED: JPG PNG GIF WEBP SVG', 'error');
+      toast('错误: 格式不支持 // 支持: JPG PNG GIF WEBP SVG', 'error');
       return;
     }
   }
@@ -310,7 +334,7 @@ function uploadFiles(files) {
   var prog = document.createElement('div');
   prog.className = 'upload-progress';
   prog.innerHTML =
-    '<div class="upload-progress-text">// UPLINK IN PROGRESS... ' + progressText(0) + '</div>' +
+    '<div class="upload-progress-text">// 上传中... ' + progressText(0) + '</div>' +
     '<div class="upload-progress-track">' +
       '<div class="upload-progress-fill" style="width:0%"></div>' +
     '</div>';
@@ -324,7 +348,7 @@ function uploadFiles(files) {
     if (e.lengthComputable) {
       var pct = Math.round(e.loaded / e.total * 100);
       prog.querySelector('.upload-progress-text').textContent =
-        '// UPLINK IN PROGRESS... ' + progressText(pct);
+        '// 上传中... ' + progressText(pct);
       prog.querySelector('.upload-progress-fill').style.width = pct + '%';
     }
   };
@@ -335,21 +359,21 @@ function uploadFiles(files) {
       if (json.code === 0) {
         dropzone.classList.add('flash-success');
         setTimeout(function () { dropzone.classList.remove('flash-success'); }, 600);
-        toast('DATA PACKET INJECTED // +' + files.length + ' FILE(S)');
+        toast('上传成功 // +' + files.length + ' FILE(S)');
         loadList();
       } else if (json.code === 401) {
         handleUnauth();
       } else {
-        toast(json.msg || 'UPLOAD FAILED', 'error');
+        toast(json.msg || '上传失败', 'error');
       }
     } catch (e) {
-      toast('RESPONSE PARSE ERROR', 'error');
+      toast('响应解析错误', 'error');
     }
     setTimeout(function () { prog.remove(); }, 1000);
   };
 
   xhr.onerror = function () {
-    toast('CONNECTION LOST // RETRY?', 'error');
+    toast('连接断开 // 重试?', 'error');
     prog.remove();
   };
 
@@ -371,9 +395,9 @@ function askDelete(id, card) {
   pendingDelete = { id: id, card: card };
   pendingPurge = null;
   pendingPurgeAll = false;
-  modal.querySelector('.modal-header').textContent = '! CONFIRM // DELETE';
+  modal.querySelector('.modal-header').textContent = '! 确认删除';
   modal.querySelector('.modal-body').textContent = '即将将该数据包移入回收站，确认继续？';
-  modalOk.textContent = '[ CONFIRM ]';
+  modalOk.textContent = '[ 确认 ]';
   modal.classList.remove('hidden');
 }
 
@@ -381,9 +405,9 @@ function askPurge(id) {
   pendingPurge = { id: id };
   pendingDelete = null;
   pendingPurgeAll = false;
-  modal.querySelector('.modal-header').textContent = '! CONFIRM // PURGE';
+  modal.querySelector('.modal-header').textContent = '! 确认永久删除';
   modal.querySelector('.modal-body').textContent = '即将永久销毁该数据包，不可恢复，确认继续？';
-  modalOk.textContent = '[ PURGE ]';
+  modalOk.textContent = '[ 永久删除 ]';
   modal.classList.remove('hidden');
 }
 
@@ -391,9 +415,9 @@ function askPurgeAll() {
   pendingPurgeAll = true;
   pendingDelete = null;
   pendingPurge = null;
-  modal.querySelector('.modal-header').textContent = '! CONFIRM // PURGE ALL';
+  modal.querySelector('.modal-header').textContent = '! 确认永久删除 ALL';
   modal.querySelector('.modal-body').textContent = '将永久销毁回收站中的全部数据包，不可恢复，确认继续？';
-  modalOk.textContent = '[ PURGE ALL ]';
+  modalOk.textContent = '[ 清空 ]';
   modal.classList.remove('hidden');
 }
 
@@ -411,7 +435,7 @@ function doDelete() {
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (json.code === 0) {
-          toast('DATA MOVED TO RECYCLE BIN');
+          toast('已移入回收站');
           loadList();
         } else if (json.code === 401) {
           handleUnauth();
@@ -420,7 +444,7 @@ function doDelete() {
         }
       })
       .catch(function () {
-        toast('DELETE FAILED', 'error');
+        toast('删除失败', 'error');
       })
       .then(function () {
         pendingDelete = null;
@@ -436,7 +460,7 @@ function doDelete() {
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (json.code === 0) {
-          toast('[ DATA PURGED PERMANENTLY ]');
+          toast('[ 已永久删除 ]');
           loadTrash();
         } else if (json.code === 401) {
           handleUnauth();
@@ -445,7 +469,7 @@ function doDelete() {
         }
       })
       .catch(function () {
-        toast('PURGE FAILED', 'error');
+        toast('永久删除失败', 'error');
       })
       .then(function () {
         pendingPurge = null;
@@ -461,7 +485,7 @@ function doDelete() {
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (json.code === 0) {
-          toast('// USER PURGED');
+          toast('用户已删除');
           loadAdminPanel();
         } else if (json.code === 401) {
           handleUnauth();
@@ -470,7 +494,7 @@ function doDelete() {
         }
       })
       .catch(function () {
-        toast('// PURGE USER FAILED //', 'error');
+        toast('删除用户失败', 'error');
       })
       .then(function () {
         _pendingAdminPurgeId = null;
@@ -608,6 +632,28 @@ gallery.addEventListener('touchmove', function (e) {
   }
 }, { passive: true });
 
+// ---------- 游客画廊交互 ----------
+
+document.addEventListener('click', function (e) {
+  var card = e.target.closest('#guestGallery .card');
+  if (!card) return;
+  var btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  var act = btn.dataset.act;
+  var item = card._item;
+  if (!item) return;
+
+  if (act === 'url') {
+    copyText(item.url, 'URL');
+  } else if (act === 'md') {
+    copyText('![' + item.name + '](' + item.url + ')', 'MD');
+  } else if (act === 'html') {
+    copyText('<img src="' + item.url + '" alt="' + item.name + '" />', 'HTML');
+  } else if (act === 'guestDel') {
+    guestDeleteImage(item.id, item.guestToken, card);
+  }
+});
+
 // ---------- 批量选择函数 ----------
 
 function enterBatchMode() {
@@ -666,12 +712,12 @@ function buildBatchBar() {
   bar.id = 'batchBar';
   bar.className = 'batch-bar hidden';
   bar.innerHTML =
-    '<div class="bb-info">// SELECTED: <b id="bbCount">0</b> PACKETS</div>' +
+    '<div class="bb-info">// 已选中: <b id="bbCount">0</b> 个文件</div>' +
     '<div class="bb-actions">' +
-      '<button id="batchSelectAll" class="btn">[ SELECT ALL ]</button>' +
-      '<button id="batchCopyBtn" class="btn">[ COPY LINKS ]</button>' +
-      '<button id="batchDeleteBtn" class="btn btn-danger">[ DELETE ALL ]</button>' +
-      '<button id="batchCancelBtn" class="btn">[ CANCEL ]</button>' +
+      '<button id="batchSelectAll" class="btn">[ 全选 ]</button>' +
+      '<button id="batchCopyBtn" class="btn">[ 复制链接 ]</button>' +
+      '<button id="batchDeleteBtn" class="btn btn-danger">[ 批量删除 ]</button>' +
+      '<button id="batchCancelBtn" class="btn">[ 取消 ]</button>' +
     '</div>';
   return bar;
 }
@@ -691,9 +737,9 @@ function bindBatchBarEvents(bar) {
     });
     if (urls.length > 0) {
       navigator.clipboard.writeText(urls.join('\n')).then(function () {
-        toast('// COPIED // ' + urls.length + ' LINKS TO CLIPBOARD', 'copied');
+        toast('已复制 ' + urls.length + ' 条链接到剪贴板', 'copied');
       }).catch(function () {
-        toast('COPY FAILED', 'error');
+        toast('复制失败', 'error');
       });
     }
   });
@@ -706,10 +752,10 @@ function bindBatchBarEvents(bar) {
     pendingPurge = null;
     pendingPurgeAll = false;
     _pendingAdminPurgeId = null;
-    modal.querySelector('.modal-header').textContent = '! WARNING: BATCH DELETE';
+    modal.querySelector('.modal-header').textContent = '! 警告: 批量删除';
     modal.querySelector('.modal-body').textContent = '即将移入回收站 ' + n + ' 个数据包，确认继续？';
-    modalOk.textContent = '[ CONFIRM DELETE ]';
-    modalCancel.textContent = '[ CANCEL ]';
+    modalOk.textContent = '[ 确认删除 ]';
+    modalCancel.textContent = '[ 取消 ]';
     modal.classList.remove('hidden');
   });
 
@@ -748,15 +794,15 @@ async function doBatchDelete() {
   loadList();
 
   if (failed > 0) {
-    toast('// WARNING // ' + failed + '/' + total + ' DELETES FAILED', 'error');
+    toast('// 警告 // ' + failed + '/' + total + ' 删除失败', 'error');
   } else {
-    toast('// ' + total + ' PACKETS MOVED TO RECYCLE BIN', 'success');
+    toast('// ' + total + ' 个文件已移入回收站', 'success');
   }
 }
 
 function markCopied(btn) {
   var orig = btn.textContent;
-  btn.textContent = '✓ COPIED';
+  btn.textContent = '✓ 已复制';
   btn.classList.add('btn-copied');
   setTimeout(function () {
     btn.textContent = orig;
@@ -788,7 +834,7 @@ dropzone.addEventListener('dragenter', function (e) {
     var icon = dropzone.querySelector('.uplink-icon');
     var main = dropzone.querySelector('.uplink-main');
     if (icon) icon.textContent = '⬇';
-    if (main) main.innerHTML = '> PACKET DETECTED // RELEASE TO INJECT<span class="caret">_</span>';
+    if (main) main.innerHTML = '> 检测到文件 // 释放以上传<span class="caret">_</span>';
   }
 });
 
@@ -804,7 +850,7 @@ dropzone.addEventListener('dragleave', function (e) {
     var icon = dropzone.querySelector('.uplink-icon');
     var main = dropzone.querySelector('.uplink-main');
     if (icon) icon.textContent = '▼';
-    if (main) main.innerHTML = '> DROP_FILE_HERE.exe<span class="caret">_</span>';
+    if (main) main.innerHTML = '> 拖拽文件到此处<span class="caret">_</span>';
   }
 });
 
@@ -815,7 +861,7 @@ dropzone.addEventListener('drop', function (e) {
   var icon = dropzone.querySelector('.uplink-icon');
   var main = dropzone.querySelector('.uplink-main');
   if (icon) icon.textContent = '▼';
-  if (main) main.innerHTML = '> DROP_FILE_HERE.exe<span class="caret">_</span>';
+  if (main) main.innerHTML = '> 拖拽文件到此处<span class="caret">_</span>';
   uploadFiles(e.dataTransfer.files);
 });
 
@@ -853,6 +899,14 @@ function buildLightbox(item) {
   var ext = item.name.split('.').pop().toUpperCase();
   var pref = localStorage.getItem('neon_img_last_format') || 'url';
 
+  // 审核状态提示
+  var modStatusHtml = '';
+  if (item.moderationStatus === 'PENDING') {
+    modStatusHtml = '<span class="lb-mod-status">// 状态: 审核中</span>';
+  } else if (item.moderationStatus === 'NEED_REVIEW') {
+    modStatusHtml = '<span class="lb-mod-status">// 状态: 等待人工复审</span>';
+  }
+
   var lb = document.createElement('div');
   lb.id = 'lightbox';
   lb.innerHTML =
@@ -864,17 +918,17 @@ function buildLightbox(item) {
           '<span class="lb-badge-ext">.' + escapeHtml(ext) + '</span>' +
         '</div>' +
         '<div class="lb-header-right">' +
-          '<span class="lb-meta">' + formatSize(item.size) + ' \xB7 ' + formatDate(item.uploadedAt) + '</span>' +
-          '<button class="btn btn-danger lb-close">× CLOSE WINDOW</button>' +
+          '<span class="lb-meta">' + formatSize(item.size) + ' \xB7 ' + formatDate(item.uploadedAt) + ' ' + modStatusHtml + '</span>' +
+          '<button class="btn btn-danger lb-close">× 关闭窗口</button>' +
         '</div>' +
       '</div>' +
       '<div class="lb-stage">' +
-        '<button class="lb-nav lb-prev">‹ PREV</button>' +
+        '<button class="lb-nav lb-prev">‹ 上一张</button>' +
         '<img class="lb-img" src="' + escapeHtml(item.url) + '" alt="' + escapeHtml(item.name) + '">' +
-        '<button class="lb-nav lb-next">NEXT ›</button>' +
+        '<button class="lb-nav lb-next">下一张 ›</button>' +
       '</div>' +
       '<div class="lb-footer">' +
-        '<span class="lb-index">// IMAGE ' + String(idx + 1).padStart(3, '0') + ' / ' + String(total).padStart(3, '0') + ' //</span>' +
+        '<span class="lb-index">// 第 ' + String(idx + 1).padStart(3, '0') + ' / 共 ' + String(total).padStart(3, '0') + ' //</span>' +
         '<div class="lb-actions">' +
           '<button class="btn' + (pref === 'url'  ? ' btn-preferred' : '') + '" data-act="url">URL</button>' +
           '<button class="btn' + (pref === 'md'   ? ' btn-preferred' : '') + '" data-act="md">MD</button>' +
@@ -967,8 +1021,10 @@ function navigateLightbox(dir) {
   lb.querySelector('.lb-img').alt = item.name;
   lb.querySelector('.lb-title').textContent = item.name;
   lb.querySelector('.lb-badge-ext').textContent = '.' + item.name.split('.').pop().toUpperCase();
-  lb.querySelector('.lb-meta').textContent = formatSize(item.size) + ' \xB7 ' + formatDate(item.uploadedAt);
-  lb.querySelector('.lb-index').textContent = '// IMAGE ' + String(lbCurrentIndex + 1).padStart(3, '0') + ' / ' + String(imageList.length).padStart(3, '0') + ' //';
+  lb.querySelector('.lb-meta').innerHTML = formatSize(item.size) + ' \xB7 ' + formatDate(item.uploadedAt) +
+    (item.moderationStatus === 'PENDING' ? ' <span class="lb-mod-status">// 状态: 审核中</span>' : '') +
+    (item.moderationStatus === 'NEED_REVIEW' ? ' <span class="lb-mod-status">// 状态: 等待人工复审</span>' : '');
+  lb.querySelector('.lb-index').textContent = '// 第 ' + String(lbCurrentIndex + 1).padStart(3, '0') + ' / 共 ' + String(imageList.length).padStart(3, '0') + ' //';
 
   var pref = localStorage.getItem('neon_img_last_format') || 'url';
   var btns = lb.querySelectorAll('.lb-actions .btn');
@@ -995,12 +1051,12 @@ function initViewToggle() {
   var btnGrid = document.createElement('button');
   btnGrid.className = 'view-btn';
   btnGrid.dataset.view = 'grid';
-  btnGrid.textContent = '⊞ GRID';
+  btnGrid.textContent = '⊞ 网格';
 
   var btnList = document.createElement('button');
   btnList.className = 'view-btn';
   btnList.dataset.view = 'list';
-  btnList.textContent = '≡ LIST';
+  btnList.textContent = '≡ 列表';
 
   toggle.appendChild(btnGrid);
   toggle.appendChild(btnList);
@@ -1061,7 +1117,7 @@ function buildShortcutPanel() {
         '<div class="sp-row"><span class="sp-key">→</span><span class="sp-desc">下一张图片</span></div>' +
         '<div class="sp-row"><span class="sp-key">Esc</span><span class="sp-desc">关闭面板 / 弹窗</span></div>' +
       '</div>' +
-      '<div class="sp-footer">// PRESS ? TO TOGGLE //</div>' +
+      '<div class="sp-footer">// 按 ? 切换面板 //</div>' +
     '</div>';
   return panel;
 }
@@ -1121,18 +1177,20 @@ function buildAuthModal() {
     '<div class="auth-backdrop"></div>' +
     '<div class="auth-box">' +
       '<div class="auth-logo">◤ NEON.IMG ◢</div>' +
-      '<div class="auth-subtitle">// IDENTITY VERIFICATION REQUIRED //</div>' +
+      '<div class="auth-subtitle">// 需要身份验证 //</div>' +
       '<div class="auth-tabs">' +
-        '<button class="auth-tab active" data-tab="login">[ LOGIN ]</button>' +
-        '<button class="auth-tab" data-tab="register">[ REGISTER ]</button>' +
+        '<button class="auth-tab active" data-tab="login">[ 登录 ]</button>' +
+        '<button class="auth-tab" data-tab="register">[ 注册 ]</button>' +
       '</div>' +
       '<form id="authForm">' +
-        '<input class="auth-input" name="username" placeholder="USERNAME" autocomplete="username" spellcheck="false" maxlength="20">' +
-        '<input class="auth-input" type="password" name="password" placeholder="PASSWORD" autocomplete="current-password">' +
-        '<input class="auth-input hidden" type="password" name="confirm" placeholder="CONFIRM PASSWORD" autocomplete="new-password">' +
+        '<input class="auth-input" name="username" placeholder="用户名" autocomplete="username" spellcheck="false" maxlength="20">' +
+        '<input class="auth-input" type="password" name="password" placeholder="密码" autocomplete="current-password">' +
+        '<input class="auth-input hidden" type="password" name="confirm" placeholder="确认密码" autocomplete="new-password">' +
         '<div class="auth-error hidden"></div>' +
-        '<button type="submit" class="auth-submit">[ AUTHENTICATE ]</button>' +
+        '<button type="submit" class="auth-submit">[ 验证 ]</button>' +
       '</form>' +
+      '<div class="auth-guest-divider">// 或 //</div>' +
+      '<button id="guestModeBtn" class="auth-guest-btn">&gt;&gt; 游客模式 [ 无需账号 ]</button>' +
     '</div>';
   return modal;
 }
@@ -1156,7 +1214,7 @@ function showAuthModal() {
   tabs.forEach(function (t) { t.classList.remove('active'); });
   tabs[0].classList.add('active');
   form.querySelector('[name="confirm"]').classList.add('hidden');
-  form.querySelector('.auth-submit').textContent = '[ AUTHENTICATE ]';
+  form.querySelector('.auth-submit').textContent = '[ 验证 ]';
   modal.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
@@ -1188,10 +1246,10 @@ function bindAuthEvents(modal) {
       tab.classList.add('active');
       if (target === 'register') {
         confirmInput.classList.remove('hidden');
-        submitBtn.textContent = '[ REGISTER ]';
+        submitBtn.textContent = '[ 注册 ]';
       } else {
         confirmInput.classList.add('hidden');
-        submitBtn.textContent = '[ AUTHENTICATE ]';
+        submitBtn.textContent = '[ 验证 ]';
       }
       errorEl.classList.add('hidden');
     });
@@ -1204,21 +1262,21 @@ function bindAuthEvents(modal) {
     var password = form.password.value;
 
     if (!username) {
-      showAuthErr('// USERNAME REQUIRED //');
+      showAuthErr('// 请输入用户名 //');
       return;
     }
 
     if (_authTab === 'register') {
       if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-        showAuthErr('// USERNAME: 3-20 CHARS, A-Z 0-9 _ //');
+        showAuthErr('// 用户名: 3-20个字符, 字母数字下划线 //');
         return;
       }
       if (!password || password.length < 6) {
-        showAuthErr('// PASSWORD: MIN 6 CHARS //');
+        showAuthErr('// 密码: 最少6个字符 //');
         return;
       }
       if (password !== form.confirm.value) {
-        showAuthErr('// PASSWORD MISMATCH //');
+        showAuthErr('// 两次密码不一致 //');
         return;
       }
       _authSubmitting = true;
@@ -1251,7 +1309,7 @@ function bindAuthEvents(modal) {
           }
         })
         .catch(function (err) {
-          showAuthErr(err.message || '// REGISTRATION FAILED //');
+          showAuthErr(err.message || '// 注册失败 //');
         })
         .then(function () {
           _authSubmitting = false;
@@ -1272,11 +1330,11 @@ function bindAuthEvents(modal) {
             initHUD();
             loadList();
           } else {
-            showAuthErr(json.msg || '// AUTH FAILED //');
+            showAuthErr(json.msg || '// 验证失败 //');
           }
         })
         .catch(function () {
-          showAuthErr('// CONNECTION LOST // RETRY?');
+          showAuthErr('// 连接断开 // 重试?');
         })
         .then(function () {
           _authSubmitting = false;
@@ -1287,6 +1345,14 @@ function bindAuthEvents(modal) {
   function showAuthErr(msg) {
     errorEl.textContent = msg;
     errorEl.classList.remove('hidden');
+  }
+
+  var guestBtn = modal.querySelector('#guestModeBtn');
+  if (guestBtn) {
+    guestBtn.addEventListener('click', function () {
+      hideAuthModal();
+      enterGuestMode();
+    });
   }
 }
 
@@ -1302,6 +1368,8 @@ function initHUD() {
   if (oldLogout) oldLogout.remove();
   var oldAdmin = document.getElementById('adminBtn');
   if (oldAdmin) oldAdmin.remove();
+  var oldModBadge = document.getElementById('modBadge');
+  if (oldModBadge) oldModBadge.remove();
 
   if (isLoggedIn()) {
     var userEl = document.createElement('span');
@@ -1341,7 +1409,7 @@ function initHUD() {
     loginPrompt.id = 'hudUser';
     loginPrompt.className = 'hud-user';
     loginPrompt.style.cursor = 'pointer';
-    loginPrompt.textContent = '// NOT AUTHENTICATED //';
+    loginPrompt.textContent = '// 未登录 //';
     loginPrompt.addEventListener('click', function () {
       showAuthModal();
     });
@@ -1351,7 +1419,248 @@ function initHUD() {
 
 function logout() {
   clearSession();
+  sessionStorage.removeItem('neon_img_guest_uploads');
   location.reload();
+}
+
+// ---------- 游客模式 ----------
+
+function enterGuestMode() {
+  guestMode = true;
+
+  // 恢复之前的游客上传记录
+  try {
+    var saved = sessionStorage.getItem('neon_img_guest_uploads');
+    guestUploads = saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    guestUploads = [];
+  }
+
+  // 显示主界面
+  showMainView();
+  document.getElementById('dropzone').style.display = '';
+
+  // HUD 游客标识
+  var hudRight = document.querySelector('.hud-right');
+  if (hudRight) {
+    var oldBadge = document.getElementById('guestBadge');
+    if (oldBadge) oldBadge.remove();
+    var badge = document.createElement('span');
+    badge.id = 'guestBadge';
+    badge.className = 'hud-guest';
+    badge.innerHTML = '// 游客模式 // <button id="exitGuestBtn">[ 退出 ]</button>';
+    hudRight.appendChild(badge);
+    document.getElementById('exitGuestBtn').addEventListener('click', function () {
+      exitGuestMode();
+    });
+  }
+
+  // 游客提示横幅
+  var banner = document.createElement('div');
+  banner.id = 'guestBanner';
+  banner.textContent = '// 游客模式 // 30天保留 // 单文件最大10MB // 单次最多3张';
+  var main = document.querySelector('main');
+  var uplink = document.getElementById('dropzone');
+  if (main && uplink) {
+    main.insertBefore(banner, uplink);
+  }
+
+  // 恢复游客画廊
+  var guestGallery = document.getElementById('guestGallery');
+  if (!guestGallery) {
+    guestGallery = document.createElement('div');
+    guestGallery.id = 'guestGallery';
+    var gallerySection = document.querySelector('.gallery');
+    if (gallerySection && gallerySection.parentNode) {
+      gallerySection.parentNode.insertBefore(guestGallery, gallerySection.nextSibling);
+    }
+  }
+  renderGuestGallery();
+
+  // 隐藏登录用户的图库
+  gallery.style.display = 'none';
+  var sectionHeader = document.querySelector('.section-header');
+  if (sectionHeader) sectionHeader.style.display = 'none';
+  var galleryControls = document.querySelector('.gallery-controls');
+  if (galleryControls) galleryControls.style.display = 'none';
+  var trashBtn = document.getElementById('trashBtn');
+  if (trashBtn) trashBtn.style.display = 'none';
+
+  toast('已进入游客模式 // 30天保留 // 匿名上传', 'info');
+}
+
+function exitGuestMode() {
+  guestMode = false;
+  guestUploads = [];
+  sessionStorage.removeItem('neon_img_guest_uploads');
+
+  var badge = document.getElementById('guestBadge');
+  if (badge) badge.remove();
+  var banner = document.getElementById('guestBanner');
+  if (banner) banner.remove();
+  var guestGallery = document.getElementById('guestGallery');
+  if (guestGallery) guestGallery.remove();
+
+  gallery.style.display = '';
+  var sectionHeader = document.querySelector('.section-header');
+  if (sectionHeader) sectionHeader.style.display = '';
+  var galleryControls = document.querySelector('.gallery-controls');
+  if (galleryControls) galleryControls.style.display = '';
+  var trashBtn = document.getElementById('trashBtn');
+  if (trashBtn) trashBtn.style.display = '';
+
+  showAuthModal();
+}
+
+function guestUploadFiles(files) {
+  if (!files || files.length === 0) return;
+
+  var GUEST_FORMATS = ['.jpg', '.jpeg', '.png', '.webp'];
+  var MAX_SIZE = 10 * 1024 * 1024;
+  var MAX_BATCH = 3;
+
+  for (var i = 0; i < files.length; i++) {
+    if (files[i].size > MAX_SIZE) {
+      toast('错误: 文件过大 // 游客限制 10MB', 'error');
+      return;
+    }
+    var ext = '.' + files[i].name.split('.').pop().toLowerCase();
+    if (GUEST_FORMATS.indexOf(ext) === -1) {
+      toast('错误: 格式不支持 // 游客仅支持 PNG JPG WEBP', 'error');
+      return;
+    }
+  }
+
+  if (files.length > MAX_BATCH) {
+    toast('错误: 游客批量限制 // 单次最多 3 张', 'error');
+    return;
+  }
+
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) {
+    fd.append('files', files[i]);
+  }
+
+  var prog = document.createElement('div');
+  prog.className = 'upload-progress';
+  prog.innerHTML =
+    '<div class="upload-progress-text">// 游客上传中... ' + progressText(0) + '</div>' +
+    '<div class="upload-progress-track">' +
+      '<div class="upload-progress-fill" style="width:0%"></div>' +
+    '</div>';
+  dropzone.appendChild(prog);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/guest/upload');
+
+  xhr.upload.onprogress = function (e) {
+    if (e.lengthComputable) {
+      var pct = Math.round(e.loaded / e.total * 100);
+      prog.querySelector('.upload-progress-text').textContent =
+        '// 游客上传中... ' + progressText(pct);
+      prog.querySelector('.upload-progress-fill').style.width = pct + '%';
+    }
+  };
+
+  xhr.onload = function () {
+    try {
+      var json = JSON.parse(xhr.responseText);
+      if (json.code === 0) {
+        dropzone.classList.add('flash-success');
+        setTimeout(function () { dropzone.classList.remove('flash-success'); }, 600);
+        var items = json.data || [];
+        for (var i = 0; i < items.length; i++) {
+          guestUploads.push(items[i]);
+        }
+        try {
+          sessionStorage.setItem('neon_img_guest_uploads', JSON.stringify(guestUploads));
+        } catch (e) {}
+        renderGuestGallery();
+        toast('上传成功 // +' + items.length + ' 张 // 游客模式');
+      } else {
+        toast(json.msg || '游客上传失败', 'error');
+      }
+    } catch (e) {
+      toast('响应解析错误', 'error');
+    }
+    setTimeout(function () { prog.remove(); }, 1000);
+  };
+
+  xhr.onerror = function () {
+    toast('连接断开 // 重试?', 'error');
+    prog.remove();
+  };
+
+  xhr.send(fd);
+}
+
+function renderGuestCard(item) {
+  var now = new Date();
+  var expiresAt = new Date(item.expiresAt);
+  var daysLeft = Math.max(0, Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24)));
+  var ext = item.name.split('.').pop().toUpperCase();
+
+  var card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.id = item.id;
+  card._item = item;
+
+  card.innerHTML =
+    '<div class="preview">' +
+      '<img src="' + escapeHtml(item.thumbUrl || item.url) + '" alt="' + escapeHtml(item.name) + '" loading="lazy">' +
+    '</div>' +
+    '<span class="badge-id">游客</span>' +
+    '<span class="badge-ext">.' + escapeHtml(ext) + '</span>' +
+    '<div class="info">' +
+      '<div class="info-row">' +
+        '<span class="meta">' + formatSize(item.size) + '</span>' +
+        '<button class="btn-overlay" data-act="url">URL</button>' +
+        '<button class="btn-overlay" data-act="md">MD</button>' +
+        '<button class="btn-overlay" data-act="html">&lt;/&gt;</button>' +
+      '</div>' +
+      '<div class="info-row" style="margin-top:4px">' +
+        '<button class="btn btn-danger" data-act="guestDel" style="width:100%">DEL</button>' +
+      '</div>' +
+      '<div class="guest-expires">有效期剩余: ' + daysLeft + ' 天</div>' +
+    '</div>';
+
+  return card;
+}
+
+function renderGuestGallery() {
+  var guestGallery = document.getElementById('guestGallery');
+  if (!guestGallery) return;
+  guestGallery.innerHTML = '';
+  if (guestUploads.length === 0) {
+    guestGallery.innerHTML = '<div class="empty">// 暂无游客上传 //</div>';
+    return;
+  }
+  for (var i = guestUploads.length - 1; i >= 0; i--) {
+    guestGallery.appendChild(renderGuestCard(guestUploads[i]));
+  }
+}
+
+function guestDeleteImage(id, token, cardEl) {
+  fetch('/api/guest/image/' + id + '?guestToken=' + encodeURIComponent(token), {
+    method: 'DELETE'
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 0) {
+        toast('已删除 // 游客数据已移除');
+        if (cardEl) cardEl.remove();
+        guestUploads = guestUploads.filter(function (x) { return x.id !== id; });
+        try {
+          sessionStorage.setItem('neon_img_guest_uploads', JSON.stringify(guestUploads));
+        } catch (e) {}
+        if (guestUploads.length === 0) renderGuestGallery();
+      } else {
+        toast(json.msg || '删除失败 // TOKEN 无效', 'error');
+      }
+    })
+    .catch(function () {
+      toast('删除失败 // 连接断开', 'error');
+    });
 }
 
 // ---------- 用户面板 ----------
@@ -1362,20 +1671,20 @@ function buildUserPanel() {
   panel.className = 'user-panel hidden';
   panel.innerHTML =
     '<div class="up-section">' +
-      '<div class="up-label">// USERNAME //</div>' +
+      '<div class="up-label">// 用户名 //</div>' +
       '<div class="up-value">' + escapeHtml(getUsername()) + '</div>' +
     '</div>' +
     '<div class="up-section">' +
       '<div class="up-label">// API TOKEN //</div>' +
       '<div class="up-row">' +
         '<code class="up-token" id="apiTokenDisplay"></code>' +
-        '<button class="btn up-copy-btn" id="copyApiToken">[ COPY ]</button>' +
+        '<button class="btn up-copy-btn" id="copyApiToken">[ 复制 ]</button>' +
       '</div>' +
       '<div class="up-row">' +
-        '<button class="btn btn-danger up-reset-btn" id="resetApiTokenBtn">[ RESET TOKEN ]</button>' +
+        '<button class="btn btn-danger up-reset-btn" id="resetApiTokenBtn">[ 重置 TOKEN ]</button>' +
       '</div>' +
     '</div>' +
-    '<button class="up-close" id="upClose">// CLOSE PANEL //</button>';
+    '<button class="up-close" id="upClose">// 关闭面板 //</button>';
   return panel;
 }
 
@@ -1394,7 +1703,7 @@ function toggleUserPanel() {
     panel.classList.remove('hidden');
     var token = localStorage.getItem('neon_img_api_token') || '';
     var tokenDisplay = panel.querySelector('#apiTokenDisplay');
-    if (tokenDisplay) tokenDisplay.textContent = token || '// NO TOKEN //';
+    if (tokenDisplay) tokenDisplay.textContent = token || '// 无 TOKEN //';
   } else {
     panel.classList.add('hidden');
   }
@@ -1409,9 +1718,9 @@ function bindUserPanelEvents(panel) {
     var token = localStorage.getItem('neon_img_api_token') || '';
     if (token) {
       navigator.clipboard.writeText(token).then(function () {
-        toast('API TOKEN COPIED', 'copied');
+        toast('API TOKEN 已复制', 'copied');
       }).catch(function () {
-        toast('COPY FAILED', 'error');
+        toast('复制失败', 'error');
       });
     }
   });
@@ -1427,7 +1736,7 @@ function bindUserPanelEvents(panel) {
           localStorage.setItem('neon_img_api_token', json.data.apiToken);
           var tokenDisplay = panel.querySelector('#apiTokenDisplay');
           if (tokenDisplay) tokenDisplay.textContent = json.data.apiToken;
-          toast('// API TOKEN RESET //', 'success');
+          toast('// API TOKEN 已重置 //', 'success');
         } else if (json.code === 401) {
           handleUnauth();
         } else {
@@ -1435,7 +1744,7 @@ function bindUserPanelEvents(panel) {
         }
       })
       .catch(function () {
-        toast('// CONNECTION LOST //', 'error');
+        toast('连接断开', 'error');
       });
   });
 
@@ -1524,14 +1833,14 @@ function buildTrashView() {
   tv.className = 'trash-view hidden';
   tv.innerHTML =
     '<div class="trash-header">' +
-      '<h3 class="section-title">◤ DATA GRAVEYARD ◢</h3>' +
+      '<h3 class="section-title">◤ 回收站 ◢</h3>' +
       '<div class="trash-actions">' +
-        '<button id="purgeAllBtn" class="btn btn-danger">[ PURGE ALL ]</button>' +
-        '<a href="#" class="btn">[ ← BACK TO VAULT ]</a>' +
+        '<button id="purgeAllBtn" class="btn btn-danger">[ 清空 ]</button>' +
+        '<a href="#" class="btn">[ ← 返回图库 ]</a>' +
       '</div>' +
     '</div>' +
     '<div id="trashList" class="trash-list"></div>' +
-    '<p id="trashEmpty" class="empty hidden">// RECYCLE BIN EMPTY // NO CORRUPTED PACKETS</p>';
+    '<p id="trashEmpty" class="empty hidden">回收站为空</p>';
   return tv;
 }
 
@@ -1557,7 +1866,7 @@ function showMainView() {
   });
   var tv = document.getElementById('trashView');
   if (tv) tv.classList.add('hidden');
-  document.title = '◤ NEON.IMG ◢ // DATA VAULT';
+  document.title = '◤ NEON.IMG ◢ // 图床服务';
 }
 
 function showTrashView() {
@@ -1589,7 +1898,7 @@ function showTrashView() {
     });
   }
   tv.classList.remove('hidden');
-  document.title = '◤ DATA GRAVEYARD ◢ // NEON.IMG';
+  document.title = '◤ 回收站 ◢ // NEON.IMG';
   loadTrash();
 }
 
@@ -1603,7 +1912,7 @@ function loadTrash() {
       updateTrashCount(items.length);
     })
     .catch(function () {
-      toast('LOAD TRASH FAILED', 'error');
+      toast('加载回收站失败', 'error');
     });
 }
 
@@ -1629,12 +1938,12 @@ function renderTrashCard(item) {
     '<img class="trash-thumb" src="' + escapeHtml(item.thumbUrl || item.url) + '" alt="' + escapeHtml(item.name) + '">' +
     '<div class="trash-info">' +
       '<div class="trash-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + '</div>' +
-      '<div class="trash-meta">' + formatSize(item.size) + ' // DELETED: ' + formatDate(item.deletedAt) + '</div>' +
-      '<div class="trash-expires' + (item.daysLeft <= 3 ? ' warning' : '') + '">EXPIRES IN ' + item.daysLeft + ' DAYS</div>' +
+      '<div class="trash-meta">' + formatSize(item.size) + ' // 已删除: ' + formatDate(item.deletedAt) + '</div>' +
+      '<div class="trash-expires' + (item.daysLeft <= 3 ? ' warning' : '') + '">剩余 ' + item.daysLeft + ' 天</div>' +
     '</div>' +
     '<div class="trash-btns">' +
-      '<button class="btn" data-act="restore" data-id="' + item.id + '">[ RESTORE ]</button>' +
-      '<button class="btn btn-danger" data-act="purge" data-id="' + item.id + '">[ PURGE ]</button>' +
+      '<button class="btn" data-act="restore" data-id="' + item.id + '">[ 恢复 ]</button>' +
+      '<button class="btn btn-danger" data-act="purge" data-id="' + item.id + '">[ 永久删除 ]</button>' +
     '</div>';
   return card;
 }
@@ -1647,7 +1956,7 @@ function restoreItem(id) {
     .then(function (res) { return res.json(); })
     .then(function (json) {
       if (json.code === 0) {
-        toast('DATA RESTORED TO VAULT');
+        toast('已恢复到图库');
         loadTrash();
         loadList();
       } else if (json.code === 401) {
@@ -1657,7 +1966,7 @@ function restoreItem(id) {
       }
     })
     .catch(function () {
-      toast('RESTORE FAILED', 'error');
+      toast('恢复失败', 'error');
     });
 }
 
@@ -1669,7 +1978,7 @@ function doPurge(id) {
     .then(function (res) { return res.json(); })
     .then(function (json) {
       if (json.code === 0) {
-        toast('[ DATA PURGED PERMANENTLY ]');
+        toast('[ 已永久删除 ]');
         loadTrash();
         updateTrashBadge();
       } else if (json.code === 401) {
@@ -1679,7 +1988,7 @@ function doPurge(id) {
       }
     })
     .catch(function () {
-      toast('PURGE FAILED', 'error');
+      toast('永久删除失败', 'error');
     });
 }
 
@@ -1701,7 +2010,7 @@ function doPurgeAll() {
       });
     })
     .then(function () {
-      toast('[ ALL CORRUPTED PACKETS PURGED ]');
+      toast('[ 已清空回收站 ]');
       pendingPurgeAll = false;
       _modalSubmitting = false;
       modal.classList.add('hidden');
@@ -1709,7 +2018,7 @@ function doPurgeAll() {
       updateTrashBadge();
     })
     .catch(function () {
-      toast('PURGE ALL FAILED', 'error');
+      toast('清空回收站失败', 'error');
       pendingPurgeAll = false;
       _modalSubmitting = false;
       modal.classList.add('hidden');
@@ -1746,14 +2055,42 @@ function buildAdminPanel() {
     '<div class="admin-backdrop"></div>' +
     '<div class="admin-box">' +
       '<div class="admin-header">' +
-        '<span>◤ ADMIN TERMINAL ◢ // USER MANAGEMENT</span>' +
-        '<button class="admin-close">[ × CLOSE ]</button>' +
+        '<span>◤ 管理终端 ◢</span>' +
+        '<button class="admin-close">[ × 关闭 ]</button>' +
       '</div>' +
-      '<div class="admin-stats" id="adminStats">// LOADING...</div>' +
+      '<div class="admin-tabs">' +
+        '<button class="admin-tab-btn active" data-tab="users">[ 用户管理 ]</button>' +
+        '<button class="admin-tab-btn" data-tab="moderation">[ 审核复审 ]</button>' +
+      '</div>' +
+      '<div class="admin-stats" id="adminStats">// 加载中...</div>' +
       '<div id="adminUserList" class="admin-user-list"></div>' +
-      '<div class="admin-footer">// ADMIN: ' + escapeHtml(getUsername()) + ' //</div>' +
+      '<div id="moderationList" class="admin-user-list hidden"></div>' +
+      '<div class="admin-footer">// 管理员: ' + escapeHtml(getUsername()) + ' //</div>' +
     '</div>';
   return panel;
+}
+
+var _adminTab = 'users';
+
+function switchAdminTab(tab) {
+  _adminTab = tab;
+  var userList = document.getElementById('adminUserList');
+  var modList = document.getElementById('moderationList');
+  var tabs = document.querySelectorAll('#adminPanel .admin-tab-btn');
+
+  tabs.forEach(function (t) {
+    t.classList.remove('active');
+    if (t.dataset.tab === tab) t.classList.add('active');
+  });
+
+  if (tab === 'users') {
+    if (userList) userList.classList.remove('hidden');
+    if (modList) modList.classList.add('hidden');
+  } else if (tab === 'moderation') {
+    if (userList) userList.classList.add('hidden');
+    if (modList) modList.classList.remove('hidden');
+    loadModerationList();
+  }
 }
 
 function toggleAdminPanel() {
@@ -1782,12 +2119,36 @@ function bindAdminPanelEvents(panel) {
     panel.classList.add('hidden');
     document.body.style.overflow = '';
   });
+
+  // Tab 切换
+  panel.querySelectorAll('.admin-tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      switchAdminTab(btn.dataset.tab);
+    });
+  });
+
+  // User list purge 按钮
   panel.querySelector('#adminUserList').addEventListener('click', function (e) {
     var btn = e.target.closest('[data-act="purge-user"]');
     if (!btn) return;
     var userId = btn.dataset.id;
     var username = btn.dataset.username;
     askPurgeUser(userId, username);
+  });
+
+  // Moderation list 操作按钮
+  panel.querySelector('#moderationList').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    var act = btn.dataset.act;
+    var imageId = btn.dataset.id;
+    if (act === 'mod-pass') {
+      modApprove(imageId);
+    } else if (act === 'mod-reject') {
+      var reason = prompt('// 拒绝原因（可选）:');
+      if (reason === null) return; // 取消
+      modReject(imageId, reason);
+    }
   });
 }
 
@@ -1797,7 +2158,7 @@ function loadAdminPanel() {
     .then(function (json) {
       if (json.code === 401) { handleUnauth(); return; }
       if (json.code === 403) {
-        toast('// ACCESS DENIED // ADMIN ONLY', 'error');
+        toast('无权访问 // 仅管理员', 'error');
         var ap = document.getElementById('adminPanel');
         if (ap) { ap.classList.add('hidden'); }
         document.body.style.overflow = '';
@@ -1807,7 +2168,7 @@ function loadAdminPanel() {
       renderAdminUserList(users);
     })
     .catch(function () {
-      toast('// LOAD USERS FAILED //', 'error');
+      toast('加载用户列表失败', 'error');
     });
 }
 
@@ -1819,25 +2180,25 @@ function renderAdminUserList(users) {
   var totalImages = 0;
   users.forEach(function (u) { totalImages += u.imageCount; });
 
-  stats.textContent = '// TOTAL USERS: ' + users.length + ' // TOTAL IMAGES: ' + totalImages + ' //';
+  stats.textContent = '// 总用户数: ' + users.length + ' // 总图片数: ' + totalImages + ' //';
 
   list.innerHTML = '';
   var currentUser = getUsername();
   users.forEach(function (u) {
     var row = document.createElement('div');
     row.className = 'admin-user-row';
-    var tag = u.isAdmin ? ' <span class="admin-tag">[ADMIN]</span>' : '';
+    var tag = u.isAdmin ? ' <span class="admin-tag">[管理员]</span>' : '';
     var isSelf = u.username === currentUser;
     var showPurge = !u.isAdmin && !isSelf;
     var purgeBtn = showPurge
-      ? '<button class="btn btn-danger admin-purge-btn" data-act="purge-user" data-id="' + u.id + '" data-username="' + escapeHtml(u.username) + '">[ PURGE USER ]</button>'
+      ? '<button class="btn btn-danger admin-purge-btn" data-act="purge-user" data-id="' + u.id + '" data-username="' + escapeHtml(u.username) + '">[ 删除用户 ]</button>'
       : '';
     row.innerHTML =
       '<span class="admin-username">' + escapeHtml(u.username) + tag + '</span>' +
       '<span class="admin-meta">' +
-        'CREATED: ' + formatDate(u.createdAt) +
-        ' // IMGS: ' + u.imageCount +
-        ' // TRASH: ' + u.trashCount +
+        '注册时间: ' + formatDate(u.createdAt) +
+        ' // 图片: ' + u.imageCount +
+        ' // 回收站: ' + u.trashCount +
       '</span>' +
       purgeBtn;
     list.appendChild(row);
@@ -1850,11 +2211,134 @@ function askPurgeUser(userId, username) {
   pendingDelete = null;
   pendingPurge = null;
   pendingPurgeAll = false;
-  modal.querySelector('.modal-header').textContent = '! WARNING: PURGE USER';
+  modal.querySelector('.modal-header').textContent = '! 警告: 删除用户';
   modal.querySelector('.modal-body').textContent = '将删除用户 [' + username + '] 及其全部数据包，此操作不可逆，确认继续？';
-  modalOk.textContent = '[ PURGE USER ]';
-  modalCancel.textContent = '[ CANCEL ]';
+  modalOk.textContent = '[ 删除用户 ]';
+  modalCancel.textContent = '[ 取消 ]';
   modal.classList.remove('hidden');
+}
+
+// ---------- 审核复审 ----------
+
+function loadModerationList() {
+  fetch('/api/admin/moderation', { headers: getAuthHeader() })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 401) { handleUnauth(); return; }
+      if (json.code === 403) {
+        toast('无权访问 // 仅管理员', 'error');
+        return;
+      }
+      renderModerationList(json.data || []);
+    })
+    .catch(function () {
+      toast('加载审核列表失败', 'error');
+    });
+}
+
+function renderModerationList(items) {
+  var list = document.getElementById('moderationList');
+  var stats = document.getElementById('adminStats');
+  if (!list || !stats) return;
+
+  stats.textContent = '// 待复审: ' + items.length + ' 项 //';
+
+  list.innerHTML = '';
+  if (items.length === 0) {
+    list.innerHTML = '<div class="mod-empty">无待审核内容</div>';
+    return;
+  }
+
+  items.forEach(function (item) {
+    var row = document.createElement('div');
+    row.className = 'mod-row';
+    row.innerHTML =
+      '<img class="mod-thumb" src="' + escapeHtml(item.thumbUrl || item.url) + '" alt="' + escapeHtml(item.name) + '" loading="lazy">' +
+      '<div class="mod-info">' +
+        '<div class="mod-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + '</div>' +
+        '<div class="mod-meta">' +
+          '// 上传者: ' + escapeHtml(item.uploader || '未知') + ' //' +
+          ' // 评分: ' + (item.score != null ? item.score : '未知') +
+          (item.tags && item.tags.length ? ' // 标签: ' + item.tags.join(', ') : '') +
+          '<br>' + formatDate(item.uploadedAt) +
+        '</div>' +
+      '</div>' +
+      '<div class="mod-btns">' +
+        '<button class="btn" data-act="mod-pass" data-id="' + item.id + '">[ 通过 ]</button>' +
+        '<button class="btn btn-danger" data-act="mod-reject" data-id="' + item.id + '">[ 拒绝 ]</button>' +
+      '</div>';
+    list.appendChild(row);
+  });
+}
+
+function modApprove(imageId) {
+  fetch('/api/admin/moderation/' + imageId + '/pass', {
+    method: 'POST',
+    headers: getAuthHeader()
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 401) { handleUnauth(); return; }
+      if (json.code === 0) {
+        toast('审核: 已通过');
+        loadModerationList();
+        updateModBadge();
+      } else {
+        toast(json.msg || '审核操作失败', 'error');
+      }
+    })
+    .catch(function () {
+      toast('审核操作失败', 'error');
+    });
+}
+
+function modReject(imageId, reason) {
+  fetch('/api/admin/moderation/' + imageId + '/reject', {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeader()),
+    body: JSON.stringify({ reason: reason || '' })
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 401) { handleUnauth(); return; }
+      if (json.code === 0) {
+        toast('审核: 已拒绝');
+        loadModerationList();
+        updateModBadge();
+      } else {
+        toast(json.msg || '审核操作失败', 'error');
+      }
+    })
+    .catch(function () {
+      toast('审核操作失败', 'error');
+    });
+}
+
+function updateModBadge() {
+  if (!isAdmin()) return;
+  fetch('/api/admin/moderation', { headers: getAuthHeader() })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 401) return;
+      var badge = document.getElementById('modBadge');
+      var count = (json.data || []).length;
+      if (count > 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.id = 'modBadge';
+          badge.className = 'mod-badge';
+          var adminBtn = document.getElementById('adminBtn');
+          if (adminBtn && adminBtn.parentNode) {
+            adminBtn.parentNode.style.position = 'relative';
+            adminBtn.parentNode.appendChild(badge);
+          }
+        }
+        badge.textContent = count;
+      } else {
+        if (badge) badge.remove();
+      }
+    })
+    .catch(function () {});
 }
 
 // ---------- 启动 ----------

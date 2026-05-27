@@ -1,9 +1,11 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { nanoid } = require('nanoid');
 const { verifyAdmin } = require('../middleware/auth');
-const { readUsers, writeUsers } = require('../utils/userMeta');
+const { readUsers, writeUsers, findUserById } = require('../utils/userMeta');
 const { readMeta, writeMeta, readTrash, writeTrash } = require('../utils/meta');
+const { appendModerationLog } = require('../utils/moderationMeta');
 
 const router = express.Router();
 
@@ -84,6 +86,91 @@ router.delete('/users/:id', verifyAdmin, (req, res) => {
   });
 
   res.json({ code: 0, msg: '// USER PURGED' });
+});
+
+/** 审核复审：获取 NEED_REVIEW 图片列表 */
+router.get('/moderation', verifyAdmin, (req, res) => {
+  const images = readMeta();
+  const list = images
+    .filter(function (x) { return x.moderationStatus === 'NEED_REVIEW'; })
+    .map(function (item) {
+      var uploader = 'unknown';
+      if (item.userId && item.userId !== 'guest') {
+        var user = findUserById(item.userId);
+        uploader = user ? user.username : item.userId;
+      } else if (item.isGuest) {
+        uploader = 'guest';
+      }
+      return {
+        id: item.id,
+        name: item.name,
+        userId: item.userId,
+        uploader: uploader,
+        score: item.moderationScore,
+        tags: item.moderationTags || [],
+        thumbUrl: item.thumbUrl || item.url,
+        uploadedAt: item.uploadedAt,
+        size: item.size
+      };
+    });
+
+  res.json({ code: 0, data: list });
+});
+
+/** 审核复审：人工通过 */
+router.post('/moderation/:imageId/pass', verifyAdmin, (req, res) => {
+  const { imageId } = req.params;
+  const images = readMeta();
+  const idx = images.findIndex(function (x) { return x.id === imageId; });
+  if (idx === -1) {
+    return res.status(404).json({ code: 1, msg: '// IMAGE NOT FOUND' });
+  }
+
+  images[idx].moderationStatus = 'PASS';
+  images[idx].moderationAt = new Date().toISOString();
+  writeMeta(images);
+
+  appendModerationLog({
+    id: nanoid(10),
+    imageId: imageId,
+    action: 'MANUAL_PASS',
+    operator: req.user.username,
+    score: images[idx].moderationScore,
+    tags: images[idx].moderationTags || [],
+    reason: '',
+    createdAt: new Date().toISOString()
+  });
+
+  res.json({ code: 0, msg: '// MODERATION: PASS' });
+});
+
+/** 审核复审：人工拒绝 */
+router.post('/moderation/:imageId/reject', verifyAdmin, (req, res) => {
+  const { imageId } = req.params;
+  const reason = (req.body && req.body.reason) || '';
+
+  const images = readMeta();
+  const idx = images.findIndex(function (x) { return x.id === imageId; });
+  if (idx === -1) {
+    return res.status(404).json({ code: 1, msg: '// IMAGE NOT FOUND' });
+  }
+
+  images[idx].moderationStatus = 'REJECT';
+  images[idx].moderationAt = new Date().toISOString();
+  writeMeta(images);
+
+  appendModerationLog({
+    id: nanoid(10),
+    imageId: imageId,
+    action: 'MANUAL_REJECT',
+    operator: req.user.username,
+    score: images[idx].moderationScore,
+    tags: images[idx].moderationTags || [],
+    reason: reason,
+    createdAt: new Date().toISOString()
+  });
+
+  res.json({ code: 0, msg: '// MODERATION: REJECT' });
 });
 
 module.exports = router;

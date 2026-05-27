@@ -843,6 +843,184 @@ main {
 }
 
 /* ============================================================
+   7.6 审核状态徽章
+   ============================================================ */
+.badge-mod {
+  position: absolute;
+  top: 8px;
+  left: 72px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  letter-spacing: 1px;
+  z-index: 6;
+  text-transform: uppercase;
+}
+
+.badge-mod.pending {
+  background: rgba(249,240,2,.15);
+  border: 1px solid var(--neon-yellow);
+  color: var(--neon-yellow);
+}
+
+.badge-mod.need-review {
+  background: rgba(176,38,255,.15);
+  border: 1px solid var(--neon-purple);
+  color: var(--neon-purple);
+}
+
+.badge-mod.rejected {
+  background: rgba(255,0,60,.15);
+  border: 1px solid var(--neon-red);
+  color: var(--neon-red);
+}
+
+.mod-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--neon-yellow);
+  margin-top: 4px;
+  letter-spacing: 1px;
+}
+
+/* ============================================================
+   Lightbox 审核状态
+   ============================================================ */
+.lb-mod-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--neon-yellow);
+  margin-left: 8px;
+}
+
+/* ============================================================
+   管理员面板 Tab
+   ============================================================ */
+.admin-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--grid-line);
+  flex-shrink: 0;
+}
+
+.admin-tab-btn {
+  flex: 1;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: .15s;
+  text-transform: uppercase;
+}
+
+.admin-tab-btn:hover {
+  color: var(--neon-cyan);
+}
+
+.admin-tab-btn.active {
+  color: var(--neon-cyan);
+  border-bottom: 2px solid var(--neon-cyan);
+}
+
+/* ============================================================
+   审核复审面板
+   ============================================================ */
+#moderationList {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 0;
+}
+
+#moderationList.hidden {
+  display: none;
+}
+
+#adminUserList.hidden {
+  display: none;
+}
+
+.mod-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--grid-line);
+  transition: background .15s;
+}
+
+.mod-row:hover {
+  background: rgba(0,240,255,.03);
+}
+
+.mod-thumb {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--grid-line);
+}
+
+.mod-info {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.mod-name {
+  color: var(--text-main);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.mod-meta {
+  color: var(--text-sub);
+  margin-top: 3px;
+  line-height: 1.6;
+}
+
+.mod-btns {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mod-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* ============================================================
+   审核数量徽章
+   ============================================================ */
+.mod-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--neon-magenta);
+  color: var(--bg-void);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 6px var(--neon-magenta);
+}
+
+/* ============================================================
    8. 按钮
    ============================================================ */
 .btn {
@@ -1551,6 +1729,86 @@ footer {
 }
 
 /* ============================================================
+   游客模式样式
+   ============================================================ */
+.auth-guest-divider {
+  text-align: center;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin: 12px 0;
+  letter-spacing: 3px;
+}
+
+.auth-guest-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px dashed var(--neon-magenta);
+  color: var(--neon-magenta);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: .15s;
+  text-transform: uppercase;
+}
+
+.auth-guest-btn:hover {
+  background: rgba(255,46,151,.1);
+  box-shadow: 0 0 12px rgba(255,46,151,.3);
+}
+
+.hud-guest {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--neon-magenta);
+  letter-spacing: 1px;
+  text-shadow: 0 0 6px var(--neon-magenta);
+}
+
+#exitGuestBtn {
+  background: transparent;
+  border: none;
+  color: var(--neon-magenta);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+#exitGuestBtn:hover {
+  text-decoration: underline;
+}
+
+#guestBanner {
+  background: rgba(255,46,151,.12);
+  border: 1px solid var(--neon-magenta);
+  border-left: 3px solid var(--neon-magenta);
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--neon-magenta);
+  letter-spacing: 1px;
+}
+
+#guestGallery {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  margin-top: 16px;
+}
+
+.guest-expires {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--neon-magenta);
+  margin-top: 4px;
+}
+
+/* ============================================================
    12.8 HUD 用户区 & 用户面板
    ============================================================ */
 .hud-user {
@@ -2039,6 +2297,22 @@ footer {
   .admin-stats {
     font-size: 10px;
     padding: 8px 14px;
+  }
+
+  .mod-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+  }
+
+  .mod-btns {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .mod-name {
+    max-width: 140px;
   }
 }
 
