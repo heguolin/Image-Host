@@ -30,12 +30,13 @@
   <header class="hud">
     <div class="hud-left">
       <span class="logo glitch" data-text="◤ NEON.IMG ◢">◤ NEON.IMG ◢</span>
-      <span class="version">// v1.3</span>
+      <span class="version">// v1.4</span>
     </div>
     <div class="hud-right">
       <span class="status"><i class="dot"></i> ONLINE</span>
       <span class="counter">⌬ <b id="count">0</b> IMG</span>
       <a id="trashBtn" href="#trash" class="hud-btn" title="回收站">⊘ <span id="trashCount"></span></a>
+      <a href="/api-docs" target="_blank" class="hud-btn" title="API 文档">API</a>
     </div>
   </header>
 
@@ -63,6 +64,7 @@
 
     <!-- 搜索 / 排序 / 格式筛选 -->
     <div class="gallery-controls">
+      <button id="batchToggleBtn" class="batch-toggle-btn">☑ 批量选择</button>
       <div class="search-wrap">
         <span class="search-prefix">//</span>
         <input id="searchInput" type="text"
@@ -91,6 +93,10 @@
           <button class="filter-tag" data-ext="webp">WEBP</button>
           <button class="filter-tag" data-ext="svg">SVG</button>
         </div>
+      </div>
+      <div class="tag-filter-wrap hidden" id="tagFilterWrap">
+        <span class="ctrl-label">标签</span>
+        <div class="tag-filter-list" id="tagFilterList"></div>
       </div>
     </div>
 

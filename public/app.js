@@ -25,11 +25,15 @@ let viewBtnList = null;
 let searchKeyword = '';
 let sortMode = 'time-desc';
 let filterExt = 'all';
+let filterTag = '';
 let selectedIds = new Set();
 let batchMode = false;
 let _pendingBatchDelete = false;
 let guestMode = false;
 let guestUploads = [];
+let uploadQueue = [];
+let activeUploads = 0;
+const MAX_CONCURRENT = 3;
 
 // ---------- 会话 ----------
 
@@ -127,6 +131,9 @@ function updateCount(n) {
 function renderCard(item, index) {
   var ext = item.name.split('.').pop().toUpperCase();
   var pref = localStorage.getItem('neon_img_last_format') || 'url';
+  var shortName = item.name.length > 12
+    ? item.name.substring(0, 12) + '…'
+    : item.name;
 
   // 审核状态徽章
   var modBadge = '';
@@ -159,13 +166,16 @@ function renderCard(item, index) {
         '<div class="card-overlay-name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + '</div>' +
       '</div>' +
     '</div>' +
-    '<span class="badge-id">#' + String(index + 1).padStart(3, '0') + '</span>' +
+    '<span class="badge-id">#' + String(index + 1).padStart(3, '0') +
+    ' <span class="badge-filename">' + escapeHtml(shortName) + '</span></span>' +
     modBadge +
     '<span class="badge-ext">.' + escapeHtml(ext) + '</span>' +
     '<div class="info">' +
+      '<div class="card-tags" id="cardTags-' + item.id + '"></div>' +
       '<div class="info-row">' +
         '<span class="meta">' + formatSize(item.size) + '</span>' +
-        '<button class="btn btn-danger" data-act="del">DEL</button>' +
+        '<button class="btn btn-rename" data-act="rename" title="重命名">✎</button>' +
+        '<button class="btn btn-danger" data-act="del">删除</button>' +
       '</div>' +
       modHint +
     '</div>';
@@ -176,10 +186,96 @@ function renderCard(item, index) {
 function rerender(list) {
   gallery.innerHTML = '';
   list.forEach(function (item, i) {
-    gallery.appendChild(renderCard(item, i));
+    var card = renderCard(item, i);
+    gallery.appendChild(card);
+    var tagsEl = card.querySelector('.card-tags');
+    if (tagsEl) renderCardTags(item, tagsEl);
   });
   updateCount(list.length);
   if (batchMode) updateBatchUI();
+}
+
+// ---------- 重命名 ----------
+
+function renameImage(item, card) {
+  var infoRow = card.querySelector('.info-row');
+  var originalHTML = infoRow.innerHTML;
+
+  infoRow.innerHTML =
+    '<input class="rename-input" type="text" maxlength="100" value="">' +
+    '<button class="btn rename-ok" title="确认">✓</button>' +
+    '<button class="btn rename-cancel" title="取消">✕</button>';
+
+  var input = infoRow.querySelector('.rename-input');
+  input.value = item.name;
+  input.focus();
+  input.select();
+
+  function restore() {
+    infoRow.innerHTML = originalHTML;
+  }
+
+  function submit() {
+    var newName = input.value.trim();
+    if (!newName) {
+      toast('// 文件名不能为空', 'error');
+      return;
+    }
+    var reg = /^[一-龥a-zA-Z0-9 _\-\.]{1,100}$/;
+    if (!reg.test(newName)) {
+      toast('// 文件名含非法字符', 'error');
+      return;
+    }
+
+    fetch('/api/image/' + encodeURIComponent(item.id) + '/rename', {
+      method: 'PATCH',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeader()),
+      body: JSON.stringify({ name: newName })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (json.code === 0) {
+          item.name = json.data.name;
+          var idx = imageList.findIndex(function (x) { return x.id === item.id; });
+          if (idx >= 0) imageList[idx].name = json.data.name;
+          var ext = json.data.name.split('.').pop().toUpperCase();
+          var badgeExt = card.querySelector('.badge-ext');
+          if (badgeExt) badgeExt.textContent = '.' + ext;
+          var overlayName = card.querySelector('.card-overlay-name');
+          if (overlayName) {
+            overlayName.textContent = json.data.name;
+            overlayName.title = json.data.name;
+          }
+          var img = card.querySelector('img');
+          if (img) img.alt = json.data.name;
+          var badgeFilename = card.querySelector('.badge-filename');
+          if (badgeFilename) {
+            var newShort = json.data.name.length > 12
+              ? json.data.name.substring(0, 12) + '…'
+              : json.data.name;
+            badgeFilename.textContent = newShort;
+          }
+          restore();
+          toast('// 重命名成功');
+        } else if (json.code === 401) {
+          handleUnauth();
+        } else {
+          toast(json.msg || '// 重命名失败', 'error');
+          restore();
+        }
+      })
+      .catch(function () {
+        toast('// 网络错误', 'error');
+        restore();
+      });
+  }
+
+  infoRow.querySelector('.rename-ok').addEventListener('click', submit);
+  infoRow.querySelector('.rename-cancel').addEventListener('click', restore);
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    if (e.key === 'Escape') { restore(); }
+  });
 }
 
 // ---------- API ----------
@@ -193,6 +289,7 @@ function loadList() {
       applyFilters();
       updateTrashBadge();
       updateModBadge();
+      loadTagFilter();
     })
     .catch(function () {
       toast('加载列表失败', 'error');
@@ -219,7 +316,14 @@ function getFilteredList() {
     });
   }
 
-  // 3. 排序
+  // 3. 标签筛选
+  if (filterTag !== '') {
+    list = list.filter(function (item) {
+      return (item.tags || []).indexOf(filterTag) !== -1;
+    });
+  }
+
+  // 4. 排序
   list.sort(function (a, b) {
     switch (sortMode) {
       case 'time-asc':  return new Date(a.uploadedAt) - new Date(b.uploadedAt);
@@ -247,11 +351,152 @@ function applyFilters() {
     if (filterExt !== 'all') {
       msg += ' // 格式: ' + filterExt.toUpperCase();
     }
-    if (searchKeyword.trim() === '' && filterExt === 'all') {
+    if (filterTag !== '') {
+      msg += ' // TAG: ' + filterTag;
+    }
+    if (searchKeyword.trim() === '' && filterExt === 'all' && filterTag === '') {
       msg = '// 暂无数据';
     }
     empty.textContent = msg;
   }
+}
+
+// ---------- 标签 ----------
+
+function renderCardTags(item, container) {
+  container.innerHTML = '';
+  if (item.tags && item.tags.length > 0) {
+    item.tags.forEach(function (tag) {
+      var tagEl = document.createElement('span');
+      tagEl.className = 'card-tag';
+      tagEl.innerHTML = escapeHtml(tag) +
+        '<button class="tag-del-btn" data-tag="' + escapeHtml(tag) + '" data-id="' + item.id + '">×</button>';
+      container.appendChild(tagEl);
+    });
+  }
+  var addBtn = document.createElement('button');
+  addBtn.className = 'tag-add-btn';
+  addBtn.dataset.id = item.id;
+  addBtn.textContent = '+ 标签';
+  container.appendChild(addBtn);
+}
+
+function showTagInput(item, card) {
+  var tagsEl = card.querySelector('.card-tags');
+  var addBtn = tagsEl.querySelector('.tag-add-btn');
+  if (addBtn) addBtn.remove();
+
+  var input = document.createElement('input');
+  input.className = 'tag-input';
+  input.placeholder = '输入标签';
+  input.maxLength = 20;
+  tagsEl.appendChild(input);
+
+  var confirmBtn = document.createElement('button');
+  confirmBtn.className = 'tag-confirm-btn';
+  confirmBtn.textContent = '✓';
+  tagsEl.appendChild(confirmBtn);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'tag-cancel-btn';
+  cancelBtn.textContent = '✕';
+  tagsEl.appendChild(cancelBtn);
+
+  input.focus();
+
+  function cancel() {
+    renderCardTags(item, tagsEl);
+  }
+
+  function submit() {
+    var newTag = input.value.trim();
+    if (!newTag) { cancel(); return; }
+    if (item.tags && item.tags.indexOf(newTag) !== -1) {
+      toast('// 标签已存在', 'error');
+      cancel();
+      return;
+    }
+    if (!/^[一-龥a-zA-Z0-9_\-]{1,20}$/.test(newTag)) {
+      toast('// 标签格式不合法', 'error');
+      cancel();
+      return;
+    }
+
+    var newTags = (item.tags || []).concat([newTag]);
+    fetch('/api/image/' + encodeURIComponent(item.id) + '/tags', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeader()),
+      body: JSON.stringify({ tags: newTags })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (json.code === 0) {
+          item.tags = json.data.tags;
+          renderCardTags(item, tagsEl);
+          loadTagFilter();
+        } else if (json.code === 401) {
+          handleUnauth();
+        } else {
+          toast(json.msg || '// 标签设置失败', 'error');
+          cancel();
+        }
+      })
+      .catch(function () {
+        toast('// 网络错误', 'error');
+        cancel();
+      });
+  }
+
+  confirmBtn.addEventListener('click', submit);
+  cancelBtn.addEventListener('click', cancel);
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    if (e.key === 'Escape') { cancel(); }
+  });
+}
+
+function loadTagFilter() {
+  fetch('/api/tags', { headers: getAuthHeader() })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 401) { handleUnauth(); return; }
+      renderTagFilter(json.data || []);
+    })
+    .catch(function () {});
+}
+
+function renderTagFilter(tags) {
+  var wrap = document.getElementById('tagFilterWrap');
+  if (!wrap) return;
+  if (tags.length === 0) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+
+  var list = document.getElementById('tagFilterList');
+  list.innerHTML = '';
+
+  var allBtn = document.createElement('button');
+  allBtn.className = 'tag-filter-btn' + (filterTag === '' ? ' active' : '');
+  allBtn.dataset.tag = '';
+  allBtn.textContent = '全部';
+  list.appendChild(allBtn);
+
+  tags.forEach(function (tag) {
+    var btn = document.createElement('button');
+    btn.className = 'tag-filter-btn' + (filterTag === tag ? ' active' : '');
+    btn.dataset.tag = tag;
+    btn.textContent = tag;
+    list.appendChild(btn);
+  });
+
+  list.addEventListener('click', function (e) {
+    var btn = e.target.closest('.tag-filter-btn');
+    if (!btn) return;
+    var btns = list.querySelectorAll('.tag-filter-btn');
+    btns.forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    filterTag = btn.dataset.tag;
+    applyFilters();
+  });
 }
 
 // ---------- 控制栏事件绑定 ----------
@@ -300,6 +545,18 @@ function bindControlEvents() {
       applyFilters();
     });
   }
+
+  // 批量选择按钮
+  var batchToggleBtn = document.getElementById('batchToggleBtn');
+  if (batchToggleBtn) {
+    batchToggleBtn.addEventListener('click', function () {
+      if (batchMode) {
+        exitBatchMode();
+      } else {
+        enterBatchMode();
+      }
+    });
+  }
 }
 
 function uploadFiles(files) {
@@ -310,74 +567,37 @@ function uploadFiles(files) {
     return;
   }
 
-  // 客户端文件校验
   var ALLOWED = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
   var MAX_SIZE = 20 * 1024 * 1024;
+  var added = 0;
+
   for (var i = 0; i < files.length; i++) {
-    if (files[i].size > MAX_SIZE) {
-      toast('错误: 文件过大 // 单文件最大 20MB', 'error');
-      return;
-    }
     var ext = '.' + files[i].name.split('.').pop().toLowerCase();
+    if (files[i].size > MAX_SIZE) {
+      toast('错误: ' + files[i].name + ' 文件过大 // 单文件最大 20MB', 'error');
+      continue;
+    }
     if (ALLOWED.indexOf(ext) === -1) {
-      toast('错误: 格式不支持 // 支持: JPG PNG GIF WEBP SVG', 'error');
-      return;
+      toast('错误: ' + files[i].name + ' 格式不支持', 'error');
+      continue;
     }
+
+    var qItem = {
+      file: files[i],
+      id: Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+      status: 'queued',
+      progress: 0,
+      el: null
+    };
+    uploadQueue.push(qItem);
+    createQueueItem(qItem);
+    added++;
   }
 
-  var fd = new FormData();
-  for (var i = 0; i < files.length; i++) {
-    fd.append('files', files[i]);
+  if (added > 0) {
+    showQueuePanel();
+    processQueue();
   }
-
-  // 进度条 DOM
-  var prog = document.createElement('div');
-  prog.className = 'upload-progress';
-  prog.innerHTML =
-    '<div class="upload-progress-text">// 上传中... ' + progressText(0) + '</div>' +
-    '<div class="upload-progress-track">' +
-      '<div class="upload-progress-fill" style="width:0%"></div>' +
-    '</div>';
-  dropzone.appendChild(prog);
-
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/upload');
-  xhr.setRequestHeader('Authorization', 'Bearer ' + getJwt());
-
-  xhr.upload.onprogress = function (e) {
-    if (e.lengthComputable) {
-      var pct = Math.round(e.loaded / e.total * 100);
-      prog.querySelector('.upload-progress-text').textContent =
-        '// 上传中... ' + progressText(pct);
-      prog.querySelector('.upload-progress-fill').style.width = pct + '%';
-    }
-  };
-
-  xhr.onload = function () {
-    try {
-      var json = JSON.parse(xhr.responseText);
-      if (json.code === 0) {
-        dropzone.classList.add('flash-success');
-        setTimeout(function () { dropzone.classList.remove('flash-success'); }, 600);
-        toast('上传成功 // +' + files.length + ' FILE(S)');
-        loadList();
-      } else if (json.code === 401) {
-        handleUnauth();
-      } else {
-        toast(json.msg || '上传失败', 'error');
-      }
-    } catch (e) {
-      toast('响应解析错误', 'error');
-    }
-    setTimeout(function () { prog.remove(); }, 1000);
-  };
-
-  xhr.onerror = function () {
-    toast('连接断开 // 重试?', 'error');
-    prog.remove();
-  };
-
-  xhr.send(fd);
 }
 
 function progressText(pct) {
@@ -387,6 +607,180 @@ function progressText(pct) {
     bar += i < filled ? '█' : '░';
   }
   return '[' + bar + '] ' + pct + '%';
+}
+
+// ---------- 上传队列面板 ----------
+
+function buildQueuePanel() {
+  var panel = document.createElement('div');
+  panel.id = 'uploadQueue';
+  panel.className = 'upload-queue hidden';
+  panel.innerHTML =
+    '<div class="uq-header">' +
+      '<span class="uq-title">// 上传队列 //</span>' +
+      '<button class="uq-close">×</button>' +
+    '</div>' +
+    '<div class="uq-list" id="uqList"></div>';
+
+  panel.querySelector('.uq-close').addEventListener('click', function () {
+    hideQueuePanel();
+  });
+
+  dropzone.parentNode.insertBefore(panel, dropzone.nextSibling);
+}
+
+function showQueuePanel() {
+  var panel = document.getElementById('uploadQueue');
+  if (!panel) { buildQueuePanel(); panel = document.getElementById('uploadQueue'); }
+  panel.classList.remove('hidden');
+}
+
+function hideQueuePanel() {
+  var panel = document.getElementById('uploadQueue');
+  if (panel) panel.classList.add('hidden');
+}
+
+function createQueueItem(qItem) {
+  var row = document.createElement('div');
+  row.className = 'uq-item';
+  row.id = 'uq-' + qItem.id;
+
+  var shortName = qItem.file.name;
+  if (shortName.length > 16) shortName = shortName.substring(0, 16) + '…';
+
+  row.innerHTML =
+    '<div class="uq-info">' +
+      '<span class="uq-name" title="' + escapeHtml(qItem.file.name) + '">' + escapeHtml(shortName) + '</span>' +
+      '<span class="uq-size">' + formatSize(qItem.file.size) + '</span>' +
+    '</div>' +
+    '<div class="uq-bar-wrap">' +
+      '<div class="uq-bar-fill" style="width:0%"></div>' +
+    '</div>' +
+    '<span class="uq-status">等待中</span>';
+
+  qItem.el = row;
+  var list = document.getElementById('uqList');
+  if (list) list.appendChild(row);
+}
+
+function updateQueueItem(qItem) {
+  if (!qItem.el) return;
+  var barFill = qItem.el.querySelector('.uq-bar-fill');
+  var statusEl = qItem.el.querySelector('.uq-status');
+
+  if (qItem.status === 'queued') {
+    if (barFill) barFill.style.width = '0%';
+    if (statusEl) statusEl.textContent = '等待中';
+  } else if (qItem.status === 'uploading') {
+    if (barFill) barFill.style.width = qItem.progress + '%';
+    if (statusEl) statusEl.textContent = qItem.progress + '%';
+  } else if (qItem.status === 'done') {
+    if (barFill) { barFill.style.width = '100%'; barFill.style.background = 'var(--neon-cyan)'; }
+    if (statusEl) statusEl.textContent = '✓ 完成';
+  } else if (qItem.status === 'failed') {
+    if (barFill) barFill.style.background = 'var(--neon-red)';
+    statusEl.innerHTML = '<span class="uq-failed">✗ 失败</span>' +
+      '<button class="uq-retry btn">重试</button>';
+    var retryBtn = qItem.el.querySelector('.uq-retry');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', function () { retryQueueItem(qItem); });
+    }
+  }
+}
+
+// ---------- 队列调度 ----------
+
+function processQueue() {
+  while (activeUploads < MAX_CONCURRENT) {
+    var qItem = null;
+    for (var i = 0; i < uploadQueue.length; i++) {
+      if (uploadQueue[i].status === 'queued') { qItem = uploadQueue[i]; break; }
+    }
+    if (!qItem) break;
+    startUpload(qItem);
+  }
+}
+
+function startUpload(qItem) {
+  qItem.status = 'uploading';
+  activeUploads++;
+  updateQueueItem(qItem);
+
+  var fd = new FormData();
+  fd.append('files', qItem.file);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+  xhr.setRequestHeader('Authorization', 'Bearer ' + getJwt());
+
+  xhr.upload.onprogress = function (e) {
+    if (e.lengthComputable) {
+      qItem.progress = Math.round(e.loaded / e.total * 100);
+      updateQueueItem(qItem);
+    }
+  };
+
+  xhr.onload = function () {
+    try {
+      var json = JSON.parse(xhr.responseText);
+      if (json.code === 0) {
+        qItem.status = 'done';
+      } else if (json.code === 401) {
+        handleUnauth();
+        qItem.status = 'failed';
+      } else {
+        qItem.status = 'failed';
+        toast((json.msg || '上传失败') + ' // ' + qItem.file.name, 'error');
+      }
+    } catch (e) {
+      qItem.status = 'failed';
+      toast('响应解析错误 // ' + qItem.file.name, 'error');
+    }
+    if (activeUploads > 0) activeUploads--;
+    updateQueueItem(qItem);
+    processQueue();
+    checkAllDone();
+  };
+
+  xhr.onerror = function () {
+    qItem.status = 'failed';
+    if (activeUploads > 0) activeUploads--;
+    updateQueueItem(qItem);
+    processQueue();
+    checkAllDone();
+  };
+
+  xhr.send(fd);
+}
+
+function retryQueueItem(qItem) {
+  qItem.status = 'queued';
+  qItem.progress = 0;
+  updateQueueItem(qItem);
+  processQueue();
+}
+
+function checkAllDone() {
+  if (uploadQueue.length === 0) return;
+
+  var stillRunning = uploadQueue.some(function (q) {
+    return q.status === 'uploading' || q.status === 'queued';
+  });
+  if (stillRunning) return;
+
+  var hasSuccess = uploadQueue.some(function (q) {
+    return q.status === 'done';
+  });
+
+  if (hasSuccess) {
+    loadList();
+  }
+
+  setTimeout(function () {
+    hideQueuePanel();
+    uploadQueue = [];
+    activeUploads = 0;
+  }, 3000);
 }
 
 // ---------- 删除模态框 ----------
@@ -435,8 +829,9 @@ function doDelete() {
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (json.code === 0) {
-          toast('已移入回收站');
           loadList();
+          updateTrashBadge();
+          showUndoBar([id], '1 个数据包已移入回收站');
         } else if (json.code === 401) {
           handleUnauth();
         } else {
@@ -549,14 +944,51 @@ gallery.addEventListener('click', function (e) {
       savePreference('html');
     } else if (act === 'del') {
       askDelete(id, card);
+    } else if (act === 'rename') {
+      renameImage(card._item, card);
+      return;
     }
     return;
   }
 
-  // card-check 点击
+  // 标签添加按钮
+  var tagAddBtn = e.target.closest('.tag-add-btn');
+  if (tagAddBtn) {
+    showTagInput(card._item, card);
+    return;
+  }
+
+  // 标签删除按钮
+  var tagDelBtn = e.target.closest('.tag-del-btn');
+  if (tagDelBtn) {
+    var delTag = tagDelBtn.dataset.tag;
+    var delId = tagDelBtn.dataset.id;
+    var delItem = card._item;
+    fetch('/api/image/' + encodeURIComponent(delId) + '/tags/' + encodeURIComponent(delTag), {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (json.code === 0) {
+          delItem.tags = (delItem.tags || []).filter(function (t) { return t !== delTag; });
+          renderCardTags(delItem, card.querySelector('.card-tags'));
+          loadTagFilter();
+        } else if (json.code === 401) {
+          handleUnauth();
+        } else {
+          toast(json.msg || '// 标签删除失败', 'error');
+        }
+      })
+      .catch(function () {
+        toast('// 网络错误', 'error');
+      });
+    return;
+  }
+
+  // card-check 点击（仅批量模式下有效）
   if (e.target.closest('.card-check')) {
-    toggleSelect(card.dataset.id, card);
-    if (!batchMode) enterBatchMode();
+    if (batchMode) toggleSelect(card.dataset.id, card);
     return;
   }
 
@@ -575,62 +1007,6 @@ gallery.addEventListener('click', function (e) {
     if (idx >= 0) openLightbox(idx);
   }
 });
-
-// 长按进入批量模式
-var _longPressTimer = null;
-var _longPressCard = null;
-var _longPressStartX = 0;
-var _longPressStartY = 0;
-
-function _startLongPress(e, cx, cy) {
-  var card = e.target.closest('.card');
-  if (!card || e.target.closest('[data-act]')) return;
-  _longPressCard = card;
-  _longPressStartX = cx;
-  _longPressStartY = cy;
-  _longPressTimer = setTimeout(function () {
-    if (!batchMode) enterBatchMode();
-    toggleSelect(_longPressCard.dataset.id, _longPressCard);
-    _longPressTimer = null;
-  }, 500);
-}
-
-function _cancelLongPress() {
-  if (_longPressTimer) {
-    clearTimeout(_longPressTimer);
-    _longPressTimer = null;
-  }
-  _longPressCard = null;
-}
-
-gallery.addEventListener('mousedown', function (e) {
-  _startLongPress(e, e.clientX, e.clientY);
-});
-
-gallery.addEventListener('touchstart', function (e) {
-  var t = e.touches[0];
-  _startLongPress(e, t.clientX, t.clientY);
-}, { passive: true });
-
-gallery.addEventListener('mouseup', _cancelLongPress);
-gallery.addEventListener('mouseleave', _cancelLongPress);
-gallery.addEventListener('touchend', _cancelLongPress);
-gallery.addEventListener('touchcancel', _cancelLongPress);
-
-gallery.addEventListener('mousemove', function (e) {
-  if (!_longPressTimer) return;
-  if (Math.abs(e.clientX - _longPressStartX) > 10 || Math.abs(e.clientY - _longPressStartY) > 10) {
-    _cancelLongPress();
-  }
-});
-
-gallery.addEventListener('touchmove', function (e) {
-  if (!_longPressTimer) return;
-  var t = e.touches[0];
-  if (Math.abs(t.clientX - _longPressStartX) > 10 || Math.abs(t.clientY - _longPressStartY) > 10) {
-    _cancelLongPress();
-  }
-}, { passive: true });
 
 // ---------- 游客画廊交互 ----------
 
@@ -668,6 +1044,11 @@ function enterBatchMode() {
   bar.classList.remove('hidden');
   bar.style.animation = 'slideUp 0.25s ease';
   updateBatchUI();
+  var btn = document.getElementById('batchToggleBtn');
+  if (btn) {
+    btn.textContent = '✕ 退出批量';
+    btn.classList.add('active');
+  }
 }
 
 function exitBatchMode() {
@@ -678,6 +1059,11 @@ function exitBatchMode() {
   cards.forEach(function (c) { c.classList.remove('card-selected'); });
   var bar = document.getElementById('batchBar');
   if (bar) bar.classList.add('hidden');
+  var btn = document.getElementById('batchToggleBtn');
+  if (btn) {
+    btn.textContent = '☑ 批量选择';
+    btn.classList.remove('active');
+  }
 }
 
 function toggleSelect(id, card) {
@@ -766,6 +1152,7 @@ async function doBatchDelete() {
   var ids = Array.from(selectedIds);
   var total = ids.length;
   var failed = 0;
+  var successIds = [];
 
   for (var i = 0; i < ids.length; i++) {
     try {
@@ -781,7 +1168,11 @@ async function doBatchDelete() {
         modal.classList.add('hidden');
         return;
       }
-      if (json.code !== 0) failed++;
+      if (json.code === 0) {
+        successIds.push(ids[i]);
+      } else {
+        failed++;
+      }
     } catch (e) {
       failed++;
     }
@@ -795,8 +1186,84 @@ async function doBatchDelete() {
 
   if (failed > 0) {
     toast('// 警告 // ' + failed + '/' + total + ' 删除失败', 'error');
+  }
+  if (successIds.length > 0) {
+    showUndoBar(successIds, successIds.length + ' 个数据包已移入回收站');
+  }
+}
+
+// ---------- Undo 撤销机制 ----------
+
+var _undoTimer = null;
+
+function showUndoBar(ids, label) {
+  if (_undoTimer) { clearInterval(_undoTimer); _undoTimer = null; }
+  var old = document.getElementById('undoBar');
+  if (old) old.remove();
+
+  var bar = document.createElement('div');
+  bar.id = 'undoBar';
+  bar.className = 'undo-bar';
+  bar.innerHTML =
+    '<span class="undo-msg">// ' + label + ' // <span id="undoCountdown">30</span>s</span>' +
+    '<div class="undo-actions">' +
+      '<button id="undoBtn" class="btn undo-btn">撤销</button>' +
+      '<button id="undoDismiss" class="btn">×</button>' +
+    '</div>';
+
+  document.body.appendChild(bar);
+
+  var countdown = 30;
+  _undoTimer = setInterval(function () {
+    countdown--;
+    var el = document.getElementById('undoCountdown');
+    if (el) el.textContent = countdown;
+    if (countdown <= 0) {
+      clearInterval(_undoTimer);
+      _undoTimer = null;
+      hideUndoBar();
+    }
+  }, 1000);
+
+  document.getElementById('undoBtn').addEventListener('click', function () {
+    clearInterval(_undoTimer);
+    _undoTimer = null;
+    hideUndoBar();
+    undoDelete(ids);
+  });
+
+  document.getElementById('undoDismiss').addEventListener('click', function () {
+    clearInterval(_undoTimer);
+    _undoTimer = null;
+    hideUndoBar();
+  });
+}
+
+function hideUndoBar() {
+  if (_undoTimer) { clearInterval(_undoTimer); _undoTimer = null; }
+  var bar = document.getElementById('undoBar');
+  if (bar) bar.remove();
+}
+
+async function undoDelete(ids) {
+  var successCount = 0;
+  for (var i = 0; i < ids.length; i++) {
+    try {
+      var res = await fetch('/api/restore/' + ids[i], {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+      var json = await res.json();
+      if (json.code === 0) successCount++;
+      else if (json.code === 401) { handleUnauth(); return; }
+    } catch (e) {}
+  }
+  if (successCount > 0) {
+    toast('// 已撤销 // ' + successCount + ' 个数据包已恢复');
+    loadList();
+    updateTrashBadge();
   } else {
-    toast('// ' + total + ' 个文件已移入回收站', 'success');
+    toast('// 撤销失败', 'error');
   }
 }
 
@@ -1675,6 +2142,30 @@ function buildUserPanel() {
       '<div class="up-value">' + escapeHtml(getUsername()) + '</div>' +
     '</div>' +
     '<div class="up-section">' +
+      '<div class="up-label">// 数据看板 //</div>' +
+      '<div class="stats-grid" id="statsGrid">' +
+        '<div class="stat-item">' +
+          '<div class="stat-num" id="statImages">--</div>' +
+          '<div class="stat-label">图片总数</div>' +
+        '</div>' +
+        '<div class="stat-item">' +
+          '<div class="stat-num" id="statSize">--</div>' +
+          '<div class="stat-label">存储用量</div>' +
+        '</div>' +
+        '<div class="stat-item">' +
+          '<div class="stat-num" id="statMonth">--</div>' +
+          '<div class="stat-label">本月上传</div>' +
+        '</div>' +
+        '<div class="stat-item">' +
+          '<div class="stat-num" id="statTrash">--</div>' +
+          '<div class="stat-label">回收站</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stats-chart" id="statsChart">' +
+        '<svg id="statsSvg" viewBox="0 0 280 80" class="stats-svg"></svg>' +
+      '</div>' +
+    '</div>' +
+    '<div class="up-section">' +
       '<div class="up-label">// API TOKEN //</div>' +
       '<div class="up-row">' +
         '<code class="up-token" id="apiTokenDisplay"></code>' +
@@ -1704,6 +2195,7 @@ function toggleUserPanel() {
     var token = localStorage.getItem('neon_img_api_token') || '';
     var tokenDisplay = panel.querySelector('#apiTokenDisplay');
     if (tokenDisplay) tokenDisplay.textContent = token || '// 无 TOKEN //';
+    loadStats();
   } else {
     panel.classList.add('hidden');
   }
@@ -1754,6 +2246,75 @@ function bindUserPanelEvents(panel) {
       panel.classList.add('hidden');
     }
   });
+}
+
+// ---------- 数据看板 ----------
+
+function loadStats() {
+  fetch('/api/stats/me', { headers: getAuthHeader() })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 401) return;
+      var d = json.data;
+      var imgsEl = document.getElementById('statImages');
+      var sizeEl = document.getElementById('statSize');
+      var monthEl = document.getElementById('statMonth');
+      var trashEl = document.getElementById('statTrash');
+
+      if (imgsEl) imgsEl.textContent = d.totalImages;
+      if (sizeEl) sizeEl.textContent = formatSize(d.totalSize);
+      if (monthEl) monthEl.textContent = d.monthImages;
+      if (trashEl) trashEl.textContent = d.trashCount;
+
+      var svg = document.getElementById('statsSvg');
+      if (svg) renderStatsSVG(svg, d.daily);
+    })
+    .catch(function () {});
+}
+
+function renderStatsSVG(svg, daily) {
+  if (!daily || daily.length === 0) {
+    svg.innerHTML = '<text x="140" y="44" text-anchor="middle" fill="var(--text-mute)" font-size="10" font-family="var(--font-mono)">// 暂无数据 //</text>';
+    return;
+  }
+
+  var maxCount = 1;
+  daily.forEach(function (d) { if (d.count > maxCount) maxCount = d.count; });
+
+  var W = 280, H = 80;
+  var padL = 26, padR = 8, padT = 10, padB = 16;
+  var plotW = W - padL - padR;
+  var plotH = H - padT - padB;
+  var stepX = plotW / Math.max(daily.length - 1, 1);
+
+  var points = daily.map(function (d, i) {
+    var x = padL + i * stepX;
+    var y = padT + plotH - (d.count / maxCount * plotH);
+    return { x: x, y: y, count: d.count, date: d.date };
+  });
+
+  var pathD = points.map(function (p, i) {
+    return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1);
+  }).join(' ');
+
+  var labels = points.map(function (p, i) {
+    var showLabel = (i % Math.ceil(daily.length / 4) === 0) || i === daily.length - 1;
+    if (!showLabel) return '';
+    var d = p.date.split('-');
+    return '<text x="' + p.x.toFixed(1) + '" y="' + (H - 2) + '" text-anchor="middle" fill="var(--text-mute)" font-size="7" font-family="var(--font-mono)">' + (parseInt(d[1], 10) || '') + '/' + (parseInt(d[2], 10) || '') + '</text>';
+  }).join('');
+
+  var topLabel = '<text x="' + padL + '" y="' + (padT - 2) + '" text-anchor="start" fill="var(--text-mute)" font-size="7" font-family="var(--font-mono)">' + maxCount + '</text>';
+
+  svg.innerHTML =
+    '<line x1="' + padL + '" y1="' + padT + '" x2="' + (W - padR) + '" y2="' + padT + '" stroke="var(--grid-line)" stroke-width="0.5" opacity="0.5"/>' +
+    '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (H - padB) + '" stroke="var(--grid-line)" stroke-width="0.5" opacity="0.5"/>' +
+    topLabel +
+    labels +
+    '<path d="' + pathD + '" fill="none" stroke="var(--neon-cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>' +
+    points.map(function (p) {
+      return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="2" fill="var(--neon-cyan)" opacity="0.9"/>';
+    }).join('');
 }
 
 // ---------- 全局快捷键 ----------
@@ -2061,10 +2622,12 @@ function buildAdminPanel() {
       '<div class="admin-tabs">' +
         '<button class="admin-tab-btn active" data-tab="users">[ 用户管理 ]</button>' +
         '<button class="admin-tab-btn" data-tab="moderation">[ 审核复审 ]</button>' +
+        '<button class="admin-tab-btn" data-tab="stats">[ 数据看板 ]</button>' +
       '</div>' +
       '<div class="admin-stats" id="adminStats">// 加载中...</div>' +
       '<div id="adminUserList" class="admin-user-list"></div>' +
       '<div id="moderationList" class="admin-user-list hidden"></div>' +
+      '<div id="adminStatsPanel" class="admin-stats-panel hidden"></div>' +
       '<div class="admin-footer">// 管理员: ' + escapeHtml(getUsername()) + ' //</div>' +
     '</div>';
   return panel;
@@ -2076,6 +2639,7 @@ function switchAdminTab(tab) {
   _adminTab = tab;
   var userList = document.getElementById('adminUserList');
   var modList = document.getElementById('moderationList');
+  var statsPanel = document.getElementById('adminStatsPanel');
   var tabs = document.querySelectorAll('#adminPanel .admin-tab-btn');
 
   tabs.forEach(function (t) {
@@ -2086,10 +2650,17 @@ function switchAdminTab(tab) {
   if (tab === 'users') {
     if (userList) userList.classList.remove('hidden');
     if (modList) modList.classList.add('hidden');
+    if (statsPanel) statsPanel.classList.add('hidden');
   } else if (tab === 'moderation') {
     if (userList) userList.classList.add('hidden');
     if (modList) modList.classList.remove('hidden');
+    if (statsPanel) statsPanel.classList.add('hidden');
     loadModerationList();
+  } else if (tab === 'stats') {
+    if (userList) userList.classList.add('hidden');
+    if (modList) modList.classList.add('hidden');
+    if (statsPanel) statsPanel.classList.remove('hidden');
+    loadAdminStats();
   }
 }
 
@@ -2337,6 +2908,45 @@ function updateModBadge() {
       } else {
         if (badge) badge.remove();
       }
+    })
+    .catch(function () {});
+}
+
+function loadAdminStats() {
+  fetch('/api/admin/stats', { headers: getAuthHeader() })
+    .then(function (res) { return res.json(); })
+    .then(function (json) {
+      if (json.code === 401) { handleUnauth(); return; }
+      var d = json.data;
+      var panel = document.getElementById('adminStatsPanel');
+      if (!panel) return;
+      panel.innerHTML =
+        '<div class="astats-grid">' +
+          '<div class="astat-item">' +
+            '<div class="astat-num">' + d.totalUsers + '</div>' +
+            '<div class="astat-label">用户数</div>' +
+          '</div>' +
+          '<div class="astat-item">' +
+            '<div class="astat-num">' + d.totalImages + '</div>' +
+            '<div class="astat-label">图片数</div>' +
+          '</div>' +
+          '<div class="astat-item">' +
+            '<div class="astat-num">' + formatSize(d.totalSize) + '</div>' +
+            '<div class="astat-label">存储量</div>' +
+          '</div>' +
+          '<div class="astat-item">' +
+            '<div class="astat-num">' + d.todayUploads + '</div>' +
+            '<div class="astat-label">今日上传</div>' +
+          '</div>' +
+          '<div class="astat-item">' +
+            '<div class="astat-num">' + d.guestUploads + '</div>' +
+            '<div class="astat-label">游客上传</div>' +
+          '</div>' +
+          '<div class="astat-item">' +
+            '<div class="astat-num" style="color:' + (d.pendingReview > 0 ? 'var(--neon-yellow)' : 'var(--neon-cyan)') + '">' + d.pendingReview + '</div>' +
+            '<div class="astat-label">待审核</div>' +
+          '</div>' +
+        '</div>';
     })
     .catch(function () {});
 }

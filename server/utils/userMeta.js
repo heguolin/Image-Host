@@ -1,32 +1,52 @@
-const fs = require('fs');
-const path = require('path');
+const { getDb } = require('./db');
 
-const FILE = path.join(__dirname, '../data/users.json');
+function userRow(u) {
+  if (!u) return null;
+  return { ...u, isAdmin: !!u.isAdmin };
+}
+
+const INSERT_USER = 'INSERT OR REPLACE INTO users (id, username, passwordHash, token, isAdmin, createdAt) VALUES (@id, @username, @passwordHash, @token, @isAdmin, @createdAt)';
+
+function userParams(u) {
+  return {
+    '@id': u.id,
+    '@username': u.username,
+    '@passwordHash': u.passwordHash,
+    '@token': u.token,
+    '@isAdmin': u.isAdmin ? 1 : 0,
+    '@createdAt': u.createdAt
+  };
+}
 
 function readUsers() {
-  if (!fs.existsSync(FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(FILE, 'utf-8'));
-  } catch {
-    return [];
-  }
+  return getDb().prepare('SELECT * FROM users').all().map(userRow);
 }
 
 function writeUsers(list) {
-  fs.writeFileSync(FILE, JSON.stringify(list, null, 2));
+  var db = getDb();
+  var insertOne = db.prepare(INSERT_USER);
+  var replaceAll = db.transaction(function (items) {
+    db.prepare('DELETE FROM users').run();
+    for (var i = 0; i < items.length; i++) {
+      insertOne.run(userParams(items[i]));
+    }
+  });
+  replaceAll(list);
 }
 
 function findUserByUsername(username) {
-  const lower = username.toLowerCase();
-  return readUsers().find(u => u.username.toLowerCase() === lower);
+  var row = getDb().prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get([username]);
+  return userRow(row);
 }
 
 function findUserById(id) {
-  return readUsers().find(u => u.id === id);
+  var row = getDb().prepare('SELECT * FROM users WHERE id = ?').get([id]);
+  return userRow(row);
 }
 
 function findUserByToken(token) {
-  return readUsers().find(u => u.token === token);
+  var row = getDb().prepare('SELECT * FROM users WHERE token = ?').get([token]);
+  return userRow(row);
 }
 
 module.exports = { readUsers, writeUsers, findUserByUsername, findUserById, findUserByToken };

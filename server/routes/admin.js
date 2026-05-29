@@ -173,4 +173,37 @@ router.post('/moderation/:imageId/reject', verifyAdmin, (req, res) => {
   res.json({ code: 0, msg: '// MODERATION: REJECT' });
 });
 
+// 管理员统计数据
+router.get('/stats', verifyAdmin, (req, res) => {
+  const users = readUsers();
+  const images = readMeta();
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  var totalImages = images.length;
+  var totalSize = 0;
+  var todayUploads = 0;
+  var guestUploads = 0;
+  var pendingReview = 0;
+
+  images.forEach(function (item) {
+    totalSize += item.size || 0;
+    if (new Date(item.uploadedAt) >= todayStart) todayUploads++;
+    if (item.isGuest) guestUploads++;
+    if (item.moderationStatus === 'NEED_REVIEW') pendingReview++;
+  });
+
+  res.json({
+    code: 0,
+    data: {
+      totalUsers: users.length,
+      totalImages: totalImages,
+      totalSize: totalSize,
+      todayUploads: todayUploads,
+      guestUploads: guestUploads,
+      pendingReview: pendingReview
+    }
+  });
+});
+
 module.exports = router;
