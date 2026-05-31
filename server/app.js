@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 3000;
   const p = path.join(__dirname, dir);
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 });
-
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
 
