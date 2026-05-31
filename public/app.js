@@ -34,6 +34,7 @@ let guestUploads = [];
 let uploadQueue = [];
 let activeUploads = 0;
 const MAX_CONCURRENT = 3;
+let _registerEnabled = true;
 
 // ---------- 会话 ----------
 
@@ -1677,9 +1678,16 @@ function showAuthModal() {
   var form = modal.querySelector('#authForm');
   form.reset();
   form.querySelector('.auth-error').classList.add('hidden');
-  var tabs = modal.querySelectorAll('.auth-tab');
+
+  // 注册开关：关闭时隐藏注册 Tab，强制登录模式
+  var registerTab = modal.querySelector('.auth-tab[data-tab="register"]');
+  if (registerTab) {
+    registerTab.classList.toggle('hidden', !_registerEnabled);
+  }
+  var tabs = modal.querySelectorAll('.auth-tab:not(.hidden)');
   tabs.forEach(function (t) { t.classList.remove('active'); });
-  tabs[0].classList.add('active');
+  if (tabs.length > 0) tabs[0].classList.add('active');
+
   form.querySelector('[name="confirm"]').classList.add('hidden');
   form.querySelector('.auth-submit').textContent = '[ 验证 ]';
   modal.classList.remove('hidden');
@@ -2961,11 +2969,18 @@ function init() {
   window.addEventListener('hashchange', handleRoute);
   handleRoute();
 
-  if (isLoggedIn()) {
-    loadList();
-  } else {
-    showAuthModal();
-  }
+  // 拉取服务信息（注册开关等），完成后再决定是否显示登录弹窗
+  fetch('/api/info').then(function (r) { return r.json(); }).then(function (d) {
+    if (d && d.code === 0 && d.data) {
+      _registerEnabled = d.data.registerEnabled !== false;
+    }
+  }).catch(function () { /* 保持默认 true */ }).finally(function () {
+    if (isLoggedIn()) {
+      loadList();
+    } else {
+      showAuthModal();
+    }
+  });
 }
 
 init();

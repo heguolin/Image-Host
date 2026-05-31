@@ -469,6 +469,7 @@ router.get('/info', function (req, res) {
       guestMaxFileSize: parseInt(process.env.GUEST_MAX_FILE_SIZE, 10) || 10485760,
       guestRetentionDays: parseInt(process.env.GUEST_RETENTION_DAYS, 10) || 30,
       moderationEnabled: process.env.MODERATION_ENABLED === 'true',
+      registerEnabled: process.env.REGISTER_ENABLED !== 'false',
       supportedFormats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']
     }
   });

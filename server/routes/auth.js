@@ -2,14 +2,33 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { nanoid } = require('nanoid');
+const rateLimit = require('express-rate-limit');
 const { readUsers, writeUsers, findUserByUsername, findUserById } = require('../utils/userMeta');
 const { verifyJWT } = require('../middleware/auth');
 
 const router = express.Router();
 
+// 注册限流：每 IP 每小时最多 5 次
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: function (req, res) {
+    res.status(429).json({ code: 429, msg: '// REGISTER LIMIT // MAX 5 PER HOUR PER IP' });
+  }
+});
+
 // 注册
-router.post('/register', (req, res) => {
-  const { username, password } = req.body || {};
+router.post('/register', registerLimiter, function (req, res) {
+  // 注册开关
+  if (process.env.REGISTER_ENABLED === 'false') {
+    return res.status(403).json({ code: 403, msg: '// REGISTRATION CLOSED' });
+  }
+
+  var _ref = req.body || {};
+  var username = _ref.username;
+  var password = _ref.password;
 
   if (!username || !/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
     return res.status(400).json({ code: 1, msg: '// ERROR // USERNAME: 3-20 chars, a-z 0-9 _' });

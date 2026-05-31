@@ -9,9 +9,9 @@
 
 NEON.IMG 是一个基于 Node.js + Express 的轻量级图床服务，支持多用户注册、游客匿名上传、图片审核、在线预览、一键复制链接和批量管理。前端采用赛博朋克霓虹美学 UI，支持拖拽、点击、粘贴三种上传方式。
 
-- **后端**：Express 5 + Multer 2 + nanoid 3 + sharp + bcryptjs（CommonJS）
+- **后端**：Express 5 + Multer 2 + nanoid 3 + sharp + bcryptjs + sql.js（CommonJS）
 - **前端**：原生 HTML + CSS + JS（无框架 / 无构建工具）
-- **存储**：本地文件系统 + JSON 元数据（无需数据库）
+- **存储**：SQLite（sql.js WASM），JSON 文件已废弃但保留备份
 - **鉴权**：JWT 会话 + API Token 双轨鉴权，多用户数据隔离
 - **审核**：魔数校验 + 可插拔审核 Provider，三级管线（预检→AI→人工复审）
 - **部署**：PM2 + Nginx 反向代理 + 一键部署脚本
@@ -20,15 +20,20 @@ NEON.IMG 是一个基于 Node.js + Express 的轻量级图床服务，支持多�
 
 | 模块 | 功能 |
 |------|------|
-| 上传 | 拖拽 / 点击 / 粘贴 / Ctrl+V，进度条反馈，单文件上限 20MB |
+| 上传 | 拖拽 / 点击 / 粘贴 / Ctrl+V，多文件队列独立进度条，失败重试，单文件 20MB |
 | 图库 | 缩略图网格/列表视图，搜索、排序、格式筛选，Lightbox 全屏预览 |
 | 链接 | 一键复制 URL / Markdown / HTML，自动记忆偏好格式 |
+| 重命名 | 行内编辑，支持中英文/数字/空格/连字符，实时生效无需刷新 |
+| 标签 | 图片打标签（霓虹胶囊样式），标签筛选栏快速过滤，覆盖式保存 |
+| 撤销 | 删除后 30 秒倒计时撤销栏，一键恢复无需进回收站，批量删除也支持 |
+| 统计 | 用户看板（总数/存储/月上传/7天趋势 SVG 图）+ 管理员全站统计 |
 | 游客 | 匿名上传通道，独立画廊，IP 限流，30 天保留，格式/大小/张数限制 |
 | 审核 | 魔数校验 + AI 评分 + 管理员复审面板，审核状态徽章 |
 | 回收站 | 30 天软删除，支持恢复 / 永久删除 / 一键清空 |
-| 批量 | 长按进入批量模式，全选 / 批量复制 / 批量删除，Ctrl+A / Esc |
-| 账号 | 开放注册，JWT 登录 + API Token，多用户数据隔离 |
-| 管理员 | 用户管理 + 审核复审，查看统计，一键删除用户及其全部数据 |
+| 批量 | 工具栏按钮进入批量模式，全选 / 批量复制 / 批量删除，Esc 退出 |
+| 账号 | 开放注册（支持开关+限流），JWT 登录 + API Token，多用户数据隔离 |
+| 管理员 | 用户管理 + 审核复审 + 全站统计看板，一键删除用户及其全部数据 |
+| API 文档 | `/api-docs` 在线文档，鉴权说明，PicGo 接入配置指南 |
 | 快捷键 | `/` 搜索 `?` 帮助 `G` 切换视图 `←→` 切换图片 `Esc` 关闭 |
 
 ---
@@ -42,7 +47,7 @@ cp .env.example .env
 # 编辑 .env，至少修改 JWT_SECRET 和 ADMIN_USERNAME
 ```
 
-`.env` 配置项（共 17 个变量，分 5 组）：
+`.env` 配置项（共 18 个变量，分 6 组）：
 
 | 分组 | 变量 | 说明 |
 |------|------|------|
@@ -63,6 +68,7 @@ cp .env.example .env
 | 审核 | `MODERATION_LOG_RETENTION_DAYS` | 审核日志保留天数（默认 180） |
 | 限流 | `RATE_LIMIT_WINDOW_MS` | 限流时间窗口（默认 60000ms） |
 | 限流 | `RATE_LIMIT_MAX` | 窗口内最大请求数（默认 30） |
+| 注册 | `REGISTER_ENABLED` | 是否开放注册（默认 true，false 时前端隐藏注册入口） |
 
 > 完整说明见 [docs/self-hosting/configuration.md](docs/self-hosting/configuration.md)
 
@@ -74,7 +80,8 @@ npm install
 npm run dev
 ```
 
-浏览器打开 **http://localhost:3000**，首次使用需注册账号。
+浏览器打开 **http://localhost:3000**，首次使用需注册账号。  
+API 文档：**http://localhost:3000/api-docs**（PicGo 接入指南）。
 
 ### 冒烟测试
 
@@ -84,6 +91,16 @@ pwsh -ExecutionPolicy Bypass -File .\smoke-test.ps1
 ```
 
 > 要求 PowerShell 7+，服务已运行在 localhost:3000
+
+### v1.3 → v1.4 数据迁移
+
+v1.4 存储层从 JSON 切换为 SQLite。首次升级需运行迁移脚本：
+
+```powershell
+node scripts/migrate-to-sqlite.js
+```
+
+> 脚本会自动备份 JSON 文件到 `server/data/backup_<时间戳>/`，迁移完成后 JSON 文件不会删除，确认无误后可手动清理。
 
 ---
 
@@ -117,7 +134,7 @@ docker run -d -p 3000:3000 --name neon-img \
 |------|------|
 | [requirements.md](docs/self-hosting/requirements.md) | 硬件/软件/网络前置要求 |
 | [install-linux.md](docs/self-hosting/install-linux.md) | Ubuntu/Debian 裸机部署完整流程 |
-| [configuration.md](docs/self-hosting/configuration.md) | 全部 17 个环境变量详解 |
+| [configuration.md](docs/self-hosting/configuration.md) | 全部 18 个环境变量详解 |
 | [backup-restore.md](docs/self-hosting/backup-restore.md) | 备份策略与灾难恢复 |
 | [troubleshooting.md](docs/self-hosting/troubleshooting.md) | 常见问题排查（19 个条目） |
 
@@ -137,18 +154,22 @@ image-host/
 │   │   ├── auth.js               # JWT + API Token + Admin 鉴权中间件 + 限流
 │   │   └── multerConfig.js       # 上传文件校验（类型/大小/随机名）
 │   ├── utils/
-│   │   ├── meta.js               # images.json / trash.json 读写
-│   │   ├── userMeta.js           # users.json 读写 + 查询
+│   │   ├── meta.js               # images / trash 读写（SQLite 存储层）
+│   │   ├── userMeta.js           # users 读写 + 查询（SQLite 存储层）
+│   │   ├── db.js                 # sql.js 封装（better-sqlite3 兼容 API + WAL）
 │   │   ├── imageProcess.js       # sharp 缩略图生成（WebP 300x300）
 │   │   ├── moderator.js          # 审核引擎（魔数校验 + 可插拔 Provider）
 │   │   └── moderationMeta.js     # 审核日志读写 + 过期清理
 │   ├── uploads/                  # 图片存储（运行时生成，勿提交）
-│   ├── data/                     # JSON 元数据（运行时生成，勿提交）
+│   ├── data/                     # SQLite 数据库 + JSON 备份（运行时生成，勿提交）
 │   └── test/                     # 冒烟测试脚本 + 测试文件
+├── scripts/
+│   └── migrate-to-sqlite.js      # JSON → SQLite 数据迁移脚本
 ├── public/
 │   ├── index.html                # 前端骨架 + HUD + 上传区 + 画廊
 │   ├── style.css                 # 赛博朋克样式（CSS 变量 + 响应式）
-│   ├── app.js                    # 前端交互（~2400 行原生 JS）
+│   ├── app.js                    # 前端交互（~3000 行原生 JS）
+│   ├── api-docs.html             # API 文档页面（赛博朋克风格）
 │   └── video/                    # 背景视频
 ├── docs/
 │   └── self-hosting/             # 自托管部署文档
@@ -158,7 +179,7 @@ image-host/
 │       ├── install-linux.md      # Linux 裸机部署指南
 │       ├── backup-restore.md     # 备份与恢复
 │       └── troubleshooting.md    # 常见问题排查
-├── .env.example                  # 环境变量模板（17 个变量 + 中文注释）
+├── .env.example                  # 环境变量模板（18 个变量 + 中文注释）
 ├── install.sh                    # 一键部署脚本（交互式 7 步引导）
 ├── ecosystem.config.js           # PM2 配置
 ├── Dockerfile                    # 容器化
@@ -178,11 +199,28 @@ image-host/
 |------|------|------|------|
 | POST | `/api/upload` | verifyAuth | 上传图片（字段 `files`，最多 10 个） |
 | GET | `/api/list` | verifyJWT | 当前用户图片列表 |
+| PATCH | `/api/image/:id/rename` | verifyAuth | 重命名图片（仅改元数据，不改文件） |
 | DELETE | `/api/image/:id` | verifyAuth | 软删除（移入回收站，校验 userId） |
 | GET | `/api/trash` | verifyJWT | 回收站列表（自动清理过期） |
 | POST | `/api/restore/:id` | verifyAuth | 从回收站恢复 |
 | DELETE | `/api/purge/:id` | verifyAuth | 永久删除 |
 | GET | `/i/<filename>` | 无 | 访问原图 / 缩略图 |
+
+### 标签接口
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/tags` | verifyJWT | 当前用户所有标签（去重汇总） |
+| POST | `/api/image/:id/tags` | verifyAuth | 覆盖式设置标签（最多 10 个，1-20 字符） |
+| DELETE | `/api/image/:id/tags/:tag` | verifyAuth | 删除图片单个标签 |
+
+### 统计接口
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/stats/me` | verifyJWT | 用户统计（总数/存储/上传趋势） |
+| GET | `/api/admin/stats` | verifyAdmin | 全站统计（用户/图片/待审核） |
+| GET | `/api/info` | 无 | 服务信息（版本/限制/开关/PicGo 配置） |
 
 ### 游客接口
 
@@ -195,7 +233,7 @@ image-host/
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| POST | `/api/auth/register` | 无 | 注册（username 3-20 字符，password ≥ 6） |
+| POST | `/api/auth/register` | 限流 | 注册（username 3-20 字符，password ≥ 6，5次/小时/IP） |
 | POST | `/api/auth/login` | 无 | 登录，返回 JWT + apiToken + isAdmin |
 | GET | `/api/auth/me` | verifyJWT | 当前用户信息 |
 | POST | `/api/auth/reset-token` | verifyJWT | 重新生成 API Token |
@@ -234,6 +272,7 @@ image-host/
 | 密码加密 | bcryptjs | 2.4.x |
 | 会话 | jsonwebtoken | 9.0.x |
 | 限流 | express-rate-limit | 7.5.x |
+| 数据库 | sql.js | 1.10.x |
 | 进程管理 | PM2 | — |
 | 反向代理 | Nginx | — |
 | 前端 | 原生 HTML + CSS + JS | — |
