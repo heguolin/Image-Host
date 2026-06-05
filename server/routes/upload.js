@@ -4,7 +4,8 @@ const path = require('path');
 const { nanoid } = require('nanoid');
 const upload = require('../middleware/multerConfig');
 const processImage = require('../utils/imageProcess');
-const { readMeta, writeMeta, appendMeta, readTrash, writeTrash, readTags, appendTag } = require('../utils/meta');
+const { readMeta, writeMeta, appendMeta, readTrash, writeTrash, readTags, appendTag,
+  readFolders, createFolder, getFolderById, updateFolder, deleteFolder, moveImage, batchMoveImages } = require('../utils/meta');
 const { verifyJWT, verifyAuth } = require('../middleware/auth');
 const { moderate } = require('../utils/moderator');
 const { appendModerationLog } = require('../utils/moderationMeta');
@@ -531,6 +532,95 @@ router.delete('/image/:id/tags/:tag', verifyAuth, (req, res) => {
   writeMeta(list);
 
   res.json({ code: 0 });
+});
+
+// ---------- 文件夹 ----------
+
+// 列出当前用户文件夹
+router.get('/folders', verifyJWT, (req, res) => {
+  const folders = readFolders(req.user.id);
+  res.json({ code: 0, data: folders });
+});
+
+// 创建文件夹
+router.post('/folders', verifyAuth, (req, res) => {
+  const { name } = req.body || {};
+  if (!name || name.trim() === '') {
+    return res.status(400).json({ code: 1, msg: '// 文件夹名不能为空' });
+  }
+  if (name.trim().length > 50) {
+    return res.status(400).json({ code: 1, msg: '// 文件夹名不能超过 50 字符' });
+  }
+  if (!/^[一-龥a-zA-Z0-9 _\-]{1,50}$/.test(name.trim())) {
+    return res.status(400).json({ code: 1, msg: '// 文件夹名含非法字符' });
+  }
+
+  const item = {
+    id: nanoid(12),
+    userId: req.user.id,
+    name: name.trim(),
+    parentId: (req.body.parentId || '').trim(),
+    sortOrder: 0,
+    createdAt: new Date().toISOString()
+  };
+  createFolder(item);
+  res.json({ code: 0, data: item });
+});
+
+// 重命名文件夹
+router.patch('/folders/:id', verifyAuth, (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body || {};
+
+  if (!name || name.trim() === '') {
+    return res.status(400).json({ code: 1, msg: '// 文件夹名不能为空' });
+  }
+  if (name.trim().length > 50) {
+    return res.status(400).json({ code: 1, msg: '// 文件夹名不能超过 50 字符' });
+  }
+  if (!/^[一-龥a-zA-Z0-9 _\-]{1,50}$/.test(name.trim())) {
+    return res.status(400).json({ code: 1, msg: '// 文件夹名含非法字符' });
+  }
+
+  const folder = getFolderById(id, req.user.id);
+  if (!folder) return res.status(404).json({ code: 1, msg: '// 文件夹不存在' });
+
+  updateFolder(id, req.user.id, name.trim());
+  res.json({ code: 0, data: { id, name: name.trim() } });
+});
+
+// 删除文件夹（图片移回根目录）
+router.delete('/folders/:id', verifyAuth, (req, res) => {
+  const { id } = req.params;
+  const folder = getFolderById(id, req.user.id);
+  if (!folder) return res.status(404).json({ code: 1, msg: '// 文件夹不存在' });
+
+  deleteFolder(id, req.user.id);
+  res.json({ code: 0, msg: '[ DIRECTORY PURGED ]' });
+});
+
+// 移动单张图片到文件夹
+router.patch('/image/:id/move', verifyAuth, (req, res) => {
+  const { id } = req.params;
+  const { folderId } = req.body || {};
+  const targetFolderId = (folderId || '').trim();
+
+  const ok = moveImage(id, req.user.id, targetFolderId);
+  if (!ok) return res.status(404).json({ code: 1, msg: '// 图片或文件夹不存在' });
+
+  res.json({ code: 0, data: { id, folderId: targetFolderId } });
+});
+
+// 批量移动
+router.post('/images/move-batch', verifyAuth, (req, res) => {
+  const { ids, folderId } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ code: 1, msg: '// 请选择图片' });
+  }
+  const targetFolderId = (folderId || '').trim();
+
+  const result = batchMoveImages(ids, req.user.id, targetFolderId);
+  res.json({ code: 0, data: result });
 });
 
 // 错误处理（Multer 等）

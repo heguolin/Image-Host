@@ -35,6 +35,13 @@ function initDb(sqlInstance) {
 
   _db.run('CREATE INDEX IF NOT EXISTS idx_trash_userId ON trash(userId)');
 
+  // 文件夹表
+  _db.run('CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY, userId TEXT NOT NULL DEFAULT \'\', name TEXT NOT NULL, parentId TEXT DEFAULT \'\', sortOrder INTEGER DEFAULT 0, createdAt TEXT NOT NULL)');
+  _db.run('CREATE INDEX IF NOT EXISTS idx_folders_userId ON folders(userId)');
+
+  // 迁移：images 增加 folderId 列
+  try { _db.run('ALTER TABLE images ADD COLUMN folderId TEXT DEFAULT \'\''); } catch (e) { /* 列已存在 */ }
+
   try { _db.run('PRAGMA foreign_keys = ON'); } catch (e) { /* sql.js 不支持此 pragma */ }
 
   saveDb();

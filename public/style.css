@@ -188,9 +188,13 @@ img {
    4. 主体
    ============================================================ */
 main {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 32px auto;
   padding: 0 24px;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 24px;
+  align-items: start;
 }
 
 /* ============================================================
@@ -1014,6 +1018,16 @@ main {
   border-color: var(--neon-cyan);
   color: var(--neon-cyan);
   box-shadow: 0 0 6px rgba(0,240,255,0.3);
+}
+
+.btn-move {
+  font-size: 14px;
+}
+
+.btn-move:hover {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+  box-shadow: 0 0 6px rgba(255,46,151,.3);
 }
 
 /* 重命名输入框 */
@@ -2749,6 +2763,272 @@ footer {
   .mod-name {
     max-width: 140px;
   }
+
+  main {
+    grid-template-columns: 1fr;
+  }
+
+  .folder-sidebar {
+    position: fixed;
+    left: -260px;
+    top: 80px;
+    width: 240px;
+    height: calc(100vh - 80px);
+    z-index: 200;
+    transition: left .25s;
+    border-radius: 0 8px 8px 0;
+  }
+
+  .folder-sidebar.open {
+    left: 0;
+  }
+
+  .folder-mobile-toggle {
+    display: flex !important;
+  }
+}
+
+/* ============================================================
+   14. 文件夹侧栏
+   ============================================================ */
+.folder-sidebar {
+  background: rgba(10,14,26,.4);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--grid-line);
+  padding: 16px;
+  height: fit-content;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  position: sticky;
+  top: 100px;
+}
+
+.folder-sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--neon-cyan);
+}
+
+.folder-mobile-toggle {
+  display: none;
+  position: fixed;
+  left: 0;
+  top: 120px;
+  z-index: 201;
+  width: 32px;
+  height: 48px;
+  background: var(--bg-surface);
+  border: 1px solid var(--neon-cyan);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  color: var(--neon-cyan);
+  font-size: 16px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  transition: left .25s;
+}
+
+.folder-sidebar-title {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan);
+  font-size: 13px;
+  letter-spacing: 2px;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+}
+
+.folder-new-btn {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 4px 10px;
+  color: var(--neon-cyan);
+  background: transparent;
+  border: 1px solid var(--neon-cyan);
+  cursor: pointer;
+  transition: .15s;
+  letter-spacing: 1px;
+}
+
+.folder-new-btn:hover {
+  background: rgba(0,240,255,.15);
+  box-shadow: 0 0 10px rgba(0,240,255,.3);
+  text-shadow: 0 0 6px var(--neon-cyan);
+}
+
+/* 文件夹树 */
+.folder-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folder-tree-empty {
+  color: var(--text-mute);
+  font-size: 11px;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.folder-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  color: var(--text-sub);
+  transition: background .12s, color .12s, border-color .12s;
+  border-left: 2px solid transparent;
+  border-radius: 2px;
+  user-select: none;
+}
+
+.folder-tree-item:hover {
+  color: var(--text-main);
+  background: rgba(0,240,255,.08);
+  border-left-color: var(--neon-cyan);
+}
+
+.folder-tree-item.active {
+  color: var(--neon-cyan);
+  background: rgba(0,240,255,.12);
+  border-left-color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan);
+}
+
+.folder-tree-item.root-item {
+  font-weight: 700;
+  font-size: 14px;
+  border-bottom: 1px solid var(--grid-line);
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+}
+
+.folder-tree-item .folder-icon {
+  color: var(--neon-yellow);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.folder-tree-item .folder-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-mute);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.folder-tree-item .folder-rename-input {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--bg-void);
+  border: 1px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  outline: none;
+  width: 100%;
+  box-shadow: 0 0 6px rgba(0,240,255,.3);
+}
+
+/* 拖拽悬停高亮 */
+.folder-tree-item.drag-over {
+  border-color: var(--neon-magenta) !important;
+  background: rgba(255,46,151,.15) !important;
+  box-shadow: inset 0 0 14px rgba(255,46,151,.25);
+}
+
+/* 卡片拖拽状态 */
+.card.dragging {
+  opacity: .35;
+  border-color: var(--neon-magenta);
+  transform: scale(.96);
+}
+
+/* 右键菜单 */
+.folder-context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-surface);
+  border: 1px solid var(--neon-cyan);
+  box-shadow: 0 0 18px rgba(0,240,255,.25);
+  padding: 4px 0;
+  min-width: 140px;
+  display: none;
+}
+
+.folder-context-menu.visible {
+  display: block;
+}
+
+.folder-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-main);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background .1s, color .1s;
+}
+
+.folder-context-menu button:hover {
+  background: rgba(0,240,255,.12);
+  color: var(--neon-cyan);
+}
+
+.folder-context-menu button.btn-danger {
+  color: var(--neon-red);
+}
+
+.folder-context-menu button.btn-danger:hover {
+  background: rgba(255,0,60,.12);
+  text-shadow: 0 0 6px var(--neon-red);
+}
+
+/* 文件夹选择弹出列表 */
+.folder-popup {
+  position: absolute;
+  z-index: 500;
+  background: var(--bg-surface);
+  border: 1px solid var(--neon-cyan);
+  box-shadow: 0 0 16px rgba(0,240,255,.25);
+  padding: 4px 0;
+  min-width: 160px;
+  max-height: 240px;
+  overflow-y: auto;
+  display: none;
+}
+
+.folder-popup.visible {
+  display: block;
+}
+
+.folder-popup-item {
+  display: block;
+  width: 100%;
+  padding: 6px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-sub);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background .1s, color .1s;
+}
+
+.folder-popup-item:hover {
+  background: rgba(0,240,255,.1);
+  color: var(--neon-cyan);
 }
 
 @media (prefers-reduced-motion: reduce) {

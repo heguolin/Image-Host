@@ -42,6 +42,22 @@
 
   <main>
 
+    <!-- ==================== 文件夹侧栏 ==================== -->
+    <button id="folderMobileToggle" class="folder-mobile-toggle" aria-label="切换文件夹面板">▸</button>
+
+    <aside id="folderSidebar" class="folder-sidebar">
+      <div class="folder-sidebar-header">
+        <span class="folder-sidebar-title">// 目录结构</span>
+        <button id="folderNewBtn" class="folder-new-btn" title="新建文件夹">[ + 文件夹 ]</button>
+      </div>
+      <nav id="folderTree" class="folder-tree">
+        <div class="folder-tree-empty">// LOADING DIRECTORIES...</div>
+      </nav>
+    </aside>
+
+    <!-- 主内容区 -->
+    <div id="mainContent">
+
     <!-- ==================== 上传区 ==================== -->
     <section id="dropzone" class="uplink">
       <span class="corner tl" aria-hidden="true"></span>
@@ -104,7 +120,17 @@
 
     <p id="empty" class="empty">暂无数据</p>
 
+    </div><!-- /#mainContent -->
   </main>
+
+  <!-- 文件夹右键菜单 -->
+  <div id="folderContextMenu" class="folder-context-menu">
+    <button data-act="rename-folder">[ 重命名 ]</button>
+    <button data-act="delete-folder" class="btn-danger">[ 删除文件夹 ]</button>
+  </div>
+
+  <!-- 移动到文件夹弹出列表 -->
+  <div id="folderPopup" class="folder-popup"></div>
 
   <footer>
     © 2026 NEON.IMG // Powered by Night City
