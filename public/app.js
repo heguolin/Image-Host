@@ -96,13 +96,36 @@ function toast(msg, type) {
   }, 2500);
 }
 
-function copy(text, format) {
-  navigator.clipboard.writeText(text).then(function () {
-    var fmtMap = { url: 'URL', md: 'MARKDOWN', html: 'HTML' };
-    toast('格式 \xB7 ' + (fmtMap[format] || format.toUpperCase()), 'copied');
-  }).catch(function () {
-    toast('复制失败', 'error');
-  });
+function copy(text, format, customLabel) {
+  var fmtMap = { url: 'URL', md: 'MARKDOWN', html: 'HTML' };
+  var label = customLabel || fmtMap[format] || format.toUpperCase();
+
+  function fallbackCopy(t) {
+    var ta = document.createElement('textarea');
+    ta.value = t;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { /* 忽略 */ }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function done() { toast('格式 \xB7 ' + label, 'copied'); }
+  function fail() { toast('复制失败', 'error'); }
+
+  // 优先 Clipboard API（HTTPS / localhost），失败降级 execCommand（HTTP 兼容）
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function () {
+      fallbackCopy(text) ? done() : fail();
+    });
+  } else {
+    fallbackCopy(text) ? done() : fail();
+  }
 }
 
 function formatSize(bytes) {
@@ -1021,11 +1044,11 @@ document.addEventListener('click', function (e) {
   if (!item) return;
 
   if (act === 'url') {
-    copyText(item.url, 'URL');
+    copy(item.url, 'URL');
   } else if (act === 'md') {
-    copyText('![' + item.name + '](' + item.url + ')', 'MD');
+    copy('![' + item.name + '](' + item.url + ')', 'MD');
   } else if (act === 'html') {
-    copyText('<img src="' + item.url + '" alt="' + item.name + '" />', 'HTML');
+    copy('<img src="' + item.url + '" alt="' + item.name + '" />', 'HTML');
   } else if (act === 'guestDel') {
     guestDeleteImage(item.id, item.guestToken, card);
   }
@@ -1123,11 +1146,7 @@ function bindBatchBarEvents(bar) {
       if (item) urls.push(item.url);
     });
     if (urls.length > 0) {
-      navigator.clipboard.writeText(urls.join('\n')).then(function () {
-        toast('已复制 ' + urls.length + ' 条链接到剪贴板', 'copied');
-      }).catch(function () {
-        toast('复制失败', 'error');
-      });
+      copy(urls.join('\n'), 'url', '已复制 ' + urls.length + ' 条链接到剪贴板');
     }
   });
 
@@ -2217,11 +2236,7 @@ function bindUserPanelEvents(panel) {
   panel.querySelector('#copyApiToken').addEventListener('click', function () {
     var token = localStorage.getItem('neon_img_api_token') || '';
     if (token) {
-      navigator.clipboard.writeText(token).then(function () {
-        toast('API TOKEN 已复制', 'copied');
-      }).catch(function () {
-        toast('复制失败', 'error');
-      });
+      copy(token, 'token', 'API TOKEN 已复制');
     }
   });
 
