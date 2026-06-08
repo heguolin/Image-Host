@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   <title>◤ NEON.IMG ◢ // API 文档</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -247,21 +248,21 @@
   <div class="auth-panel active" id="auth-jwt">
     <p class="api-desc">通过账号密码登录获取 JWT，用于浏览器端 API 调用。7 天有效，过期需重新登录。</p>
     <div class="code-block"># 获取 JWT
-curl -X POST http://your-domain/api/auth/login \
+curl -X POST https://your-domain/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"USERNAME","password":"PASSWORD"}'
 
 # 响应 { "code":0, "data":{ "jwt":"eyJ...", ... } }
 
 # 使用 JWT 调用需要鉴权的接口
-curl http://your-domain/api/list \
+curl https://your-domain/api/list \
   -H "Authorization: Bearer eyJ..."</div>
   </div>
 
   <div class="auth-panel" id="auth-token">
     <p class="api-desc">登录后在用户面板获取 API Token，用于 PicGo、Typora、Obsidian 等外部工具直传。长期有效，可随时重置。</p>
     <div class="code-block"># 使用 API Token 上传（请求头 x-upload-token）
-curl -X POST http://your-domain/api/upload \
+curl -X POST https://your-domain/api/upload \
   -H "x-upload-token: YOUR_API_TOKEN" \
   -F "files=@image.png"</div>
   </div>
@@ -279,7 +280,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge open">公开</span>
     </div>
     <div class="api-desc">注册新账号。username 为 3~20 位字母数字下划线，password 至少 6 位。</div>
-    <div class="code-block">curl -X POST http://your-domain/api/auth/register \
+    <div class="code-block">curl -X POST https://your-domain/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username":"user","password":"123456"}'</div>
     <div class="code-block">{ "code": 0, "data": { "username": "user", "apiToken": "xxx..." } }</div>
@@ -292,7 +293,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge open">公开</span>
     </div>
     <div class="api-desc">登录并返回 JWT（7 天有效）和 API Token。</div>
-    <div class="code-block">curl -X POST http://your-domain/api/auth/login \
+    <div class="code-block">curl -X POST https://your-domain/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"user","password":"123456"}'
 
@@ -306,7 +307,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">获取当前登录用户的用户名和 API Token。</div>
-    <div class="code-block">curl http://your-domain/api/auth/me \
+    <div class="code-block">curl https://your-domain/api/auth/me \
   -H "Authorization: Bearer <jwt>"
 
 { "code": 0, "data": { "username": "user", "apiToken": "xx..." } }</div>
@@ -319,7 +320,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">重置当前用户的 API Token，旧 Token 立即失效。</div>
-    <div class="code-block">curl -X POST http://your-domain/api/auth/reset-token \
+    <div class="code-block">curl -X POST https://your-domain/api/auth/reset-token \
   -H "Authorization: Bearer <jwt>"
 
 { "code": 0, "data": { "apiToken": "new_token..." } }</div>
@@ -335,12 +336,12 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT / Token</span>
     </div>
     <div class="api-desc">上传图片（需鉴权）。multipart/form-data，字段名 files，单次最多 10 张，单文件最大 20MB。支持 JPG / PNG / GIF / WEBP / SVG。</div>
-    <div class="code-block">curl -X POST http://your-domain/api/upload \
+    <div class="code-block">curl -X POST https://your-domain/api/upload \
   -H "Authorization: Bearer <jwt>" \
   -F "files=@image.png" \
   -F "files=@photo.jpg"
 
-{ "code": 0, "data": [{ "id": "...", "url": "http://your-domain/i/...", ... }] }</div>
+{ "code": 0, "data": [{ "id": "...", "url": "https://your-domain/i/...", ... }] }</div>
   </div>
 
   <div class="api-card">
@@ -350,10 +351,10 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge open">公开</span>
     </div>
     <div class="api-desc">游客上传（无需鉴权）。仅支持 JPG / PNG / WEBP，单文件最大 10MB，单次最多 3 张。图片保留 30 天后自动清理，每日每 IP 限量。</div>
-    <div class="code-block">curl -X POST http://your-domain/api/guest/upload \
+    <div class="code-block">curl -X POST https://your-domain/api/guest/upload \
   -F "files=@image.png"
 
-{ "code": 0, "data": [{ "id": "...", "url": "http://your-domain/i/...", "expiresAt": "..." }] }</div>
+{ "code": 0, "data": [{ "id": "...", "url": "https://your-domain/i/...", "expiresAt": "..." }] }</div>
   </div>
 
   <!-- 图库管理 -->
@@ -366,7 +367,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">获取当前用户的图片列表（不含已拒绝和他人数据）。</div>
-    <div class="code-block">curl http://your-domain/api/list \
+    <div class="code-block">curl https://your-domain/api/list \
   -H "Authorization: Bearer <jwt>"
 
 { "code": 0, "data": [{ "id": "...", "name": "image.png", "url": "...", "tags": [] }] }</div>
@@ -379,7 +380,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">重命名图片（仅更新元数据，不改实际文件名）。中文/字母/数字/空格/连字符/下划线/点，最长 100 字符。</div>
-    <div class="code-block">curl -X PATCH http://your-domain/api/image/ID.png/rename \
+    <div class="code-block">curl -X PATCH https://your-domain/api/image/ID.png/rename \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <jwt>" \
   -d '{"name":"new-name.png"}'
@@ -394,7 +395,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">设置图片标签（覆盖式）。每个标签 1~20 字符，中文/字母/数字/下划线/连字符，最多 10 个。</div>
-    <div class="code-block">curl -X POST http://your-domain/api/image/ID.png/tags \
+    <div class="code-block">curl -X POST https://your-domain/api/image/ID.png/tags \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <jwt>" \
   -d '{"tags":["截图","参考图"]}'
@@ -409,7 +410,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">删除图片的单个标签。:tag 参数使用 encodeURIComponent 编码。</div>
-    <div class="code-block">curl -X DELETE http://your-domain/api/image/ID.png/tags/%E6%88%AA%E5%9B%BE \
+    <div class="code-block">curl -X DELETE https://your-domain/api/image/ID.png/tags/%E6%88%AA%E5%9B%BE \
   -H "Authorization: Bearer <jwt>"
 
 { "code": 0 }</div>
@@ -422,7 +423,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">删除图片（软删除，移入回收站，30 天后可永久清除）。</div>
-    <div class="code-block">curl -X DELETE http://your-domain/api/image/ID.png \
+    <div class="code-block">curl -X DELETE https://your-domain/api/image/ID.png \
   -H "Authorization: Bearer <jwt>"
 
 { "code": 0, "msg": "已移入回收站" }</div>
@@ -438,7 +439,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">获取当前用户的回收站列表（含剩余天数字段 daysLeft）。</div>
-    <div class="code-block">curl http://your-domain/api/trash \
+    <div class="code-block">curl https://your-domain/api/trash \
   -H "Authorization: Bearer <jwt>"</div>
   </div>
 
@@ -449,7 +450,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">从回收站恢复图片到图库。</div>
-    <div class="code-block">curl -X POST http://your-domain/api/restore/ID.png \
+    <div class="code-block">curl -X POST https://your-domain/api/restore/ID.png \
   -H "Authorization: Bearer <jwt>"
 
 { "code": 0, "msg": "已恢复" }</div>
@@ -462,7 +463,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">永久删除图片（不可恢复，会删除磁盘文件）。</div>
-    <div class="code-block">curl -X DELETE http://your-domain/api/purge/ID.png \
+    <div class="code-block">curl -X DELETE https://your-domain/api/purge/ID.png \
   -H "Authorization: Bearer <jwt>"</div>
   </div>
 
@@ -476,7 +477,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge jwt">JWT</span>
     </div>
     <div class="api-desc">获取当前用户的统计数据：图片总数、存储量、本月上传、近 7 天趋势。</div>
-    <div class="code-block">curl http://your-domain/api/stats/me \
+    <div class="code-block">curl https://your-domain/api/stats/me \
   -H "Authorization: Bearer <jwt>"
 
 { "code": 0, "data": { "totalImages": 5, "totalSize": 45718623, ... } }</div>
@@ -489,7 +490,7 @@ curl -X POST http://your-domain/api/upload \
       <span class="auth-badge open">公开</span>
     </div>
     <div class="api-desc">获取服务基本信息（版本号、上限配置、功能开关），无需鉴权。</div>
-    <div class="code-block">curl http://your-domain/api/info
+    <div class="code-block">curl https://your-domain/api/info
 
 { "code": 0, "data": { "version": "1.4.0", "maxFileSize": 20971520, ... } }</div>
   </div>
@@ -504,7 +505,7 @@ curl -X POST http://your-domain/api/upload \
 2. 在 PicGo 中安装 web-uploader 插件（或使用内置 Custom 图床）
 3. 填写以下配置参数：
 
-API URL:      http://your-domain/api/upload
+API URL:      https://your-domain/api/upload
 Request Header: x-upload-token: YOUR_API_TOKEN
 Response Key:  data[0].url</div>
 
