@@ -12,6 +12,14 @@ const { appendModerationLog } = require('../utils/moderationMeta');
 
 const router = express.Router();
 
+/** 获取正确的 base URL：优先 X-Forwarded-Proto（Nginx 反代），其次 req.protocol，兜底 BASE_URL 环境变量 */
+function getBaseUrl(req) {
+  var proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+    || req.protocol
+    || 'https';
+  return proto + '://' + req.get('host');
+}
+
 /** 删除缩略图文件（如果存在） */
 function deleteThumb(item) {
   const thumbName = item.thumbFilename || item.id.replace(/\.\w+$/, '') + '_thumb.webp';
@@ -74,7 +82,7 @@ router.post('/upload', verifyAuth, upload.array('files', 10), async (req, res) =
     return res.status(400).json({ code: 1, msg: '没有上传文件' });
   }
 
-  const host = `${req.protocol}://${req.get('host')}`;
+  const host = getBaseUrl(req);
 
   const results = [];
   for (const f of req.files) {
@@ -294,7 +302,7 @@ router.post('/guest/upload', upload.array('files', 3), async (req, res) => {
 
   const guestMaxSize = parseInt(process.env.GUEST_MAX_FILE_SIZE, 10) || 10 * 1024 * 1024;
   const retentionDays = parseInt(process.env.GUEST_RETENTION_DAYS, 10) || 30;
-  const host = `${req.protocol}://${req.get('host')}`;
+  const host = getBaseUrl(req);
 
   const results = [];
   for (const f of req.files) {

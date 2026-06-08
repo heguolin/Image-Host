@@ -1860,7 +1860,9 @@ footer {
    12.6 回收站
    ============================================================ */
 .trash-view {
+  grid-column: 1 / -1;
   padding-top: 8px;
+  width: 100%;
 }
 
 .trash-header {
